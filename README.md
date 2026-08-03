@@ -1,9 +1,9 @@
 # 1024ex — agent skill for 1024 Exchange
 
 Trade on [1024 Exchange](https://www.1024ex.com) from Claude Code or any
-agent that understands [Agent Skills](https://agentskills.io) — perpetuals,
-spot, and prediction markets over the public HTTP API: onboarding,
-HMAC-signed orders, positions, balances, treasury and withdrawals.
+agent that understands [Agent Skills](https://agentskills.io) — perpetuals
+and prediction markets over the public HTTP API: onboarding, HMAC-signed
+orders, positions, balances, treasury and withdrawals.
 
 ## Install
 

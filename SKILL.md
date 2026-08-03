@@ -1,6 +1,6 @@
 ---
 name: 1024ex
-description: Trade on 1024 Exchange via its public HTTP API — perpetuals, spot, and prediction markets. Onboarding, HMAC-signed orders, positions, balances, treasury and withdrawals. Use when the user asks to trade, quote, monitor, or automate anything on 1024 / 1024ex.com.
+description: Trade on 1024 Exchange via its public HTTP API — perpetuals and prediction markets. Onboarding, HMAC-signed orders, positions, balances, treasury and withdrawals. Use when the user asks to trade, quote, monitor, or automate anything on 1024 / 1024ex.com.
 ---
 
 # 1024 Exchange trading
@@ -63,7 +63,6 @@ market data needs no key:
 ```text
 GET /api/v1/perp/markets                       tick/step, max leverage per market
 GET /api/v1/perp/markets/{m}/ticker            also /orderbook /klines /trades
-GET /api/v1/spot/markets                       also /{m}/ticker /{m}/orderbook /{m}/klines
 GET /api/v1/prediction/markets/active          also /trending /search?q= /markets/{id}
 GET /api/v1/prediction/markets/{id}/orderbook  also /depth /price-history
 ```
@@ -72,20 +71,18 @@ Account and trading (HMAC — always via `scripts/api.py`):
 
 ```text
 GET    /api/v1/accounts/me/overview            equity + balances across products
-GET    /api/v1/spot/balances
 GET    /api/v1/perp/positions                  open positions
 GET    /api/v1/perp/orders                     open orders; filled/cancelled: /orders/history
 POST   /api/v1/perp/orders                     place (body fields: see example above)
 DELETE /api/v1/perp/orders/{id}                per market: DELETE /orders/cancel-all + {"market":…}
-POST   /api/v1/spot/orders                     same shape as perp, minus leverage
 GET    /api/v1/prediction/me/positions         also /me/orders /me/trades
 POST   /api/v1/prediction/orders               binary; multi-outcome: /multi-outcome/orders
 DELETE /api/v1/prediction/orders/cancel        body {"marketId":…,"orderId":…}
 ```
 
-**Symbol formats differ**: perp is `BTC-USDC` (dash), spot is `BTC/USDC`
-(slash), prediction takes a numeric `marketId`. Anything beyond this table
-(funding, TP/SL, advanced orders, treasury, streams) → Canonical docs below.
+**Symbol formats differ**: perp is `BTC-USDC` (dash), prediction takes a
+numeric `marketId`. Anything beyond this table (funding, TP/SL, advanced
+orders, treasury, streams) → Canonical docs below.
 
 ## Rules that prevent losses
 
