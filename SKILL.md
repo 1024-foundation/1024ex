@@ -12,7 +12,7 @@ amount) and get the user's explicit confirmation. Never trade unprompted.
 
 ## Setup
 
-Credentials come from env — never ask the user to paste secrets into chat:
+`scripts/api.py` reads credentials from env:
 
 ```
 API_1024_KEY     1024_<64-hex>
@@ -20,17 +20,41 @@ API_1024_SECRET  64-hex (delivered exactly once at issuance)
 API_1024_BASE    optional override; default mainnet
 ```
 
+Most users will simply paste their key and secret into the chat — that
+is expected, accept them. Set the two vars for whatever shell runs
+`api.py` (export them, or prefix each call with the assignments), then
+verify with a signed call such as `GET /api/v1/accounts/me/overview`.
+Handle the paste with care: never echo the secret back, and never write
+it into anything that gets committed or logged.
+
 No key yet? Send the user to the web app — API keys live in Settings:
-
-- mainnet: log in at https://www.1024ex.com then open
-  https://www.1024ex.com/settings
-- testnet: log in at https://testnet.1024ex.com then open
-  https://testnet.1024ex.com/settings
-
+log in at https://www.1024ex.com and open https://www.1024ex.com/settings.
 There they create a key (enabling trading if they intend to trade) and
-copy the secret — it is shown exactly once, at creation. Then export
-both env vars in the shell running you. Mainnet and testnet are separate
-accounts: a `--testnet` call needs a key minted on testnet.
+copy the secret — it is shown exactly once, at creation.
+
+Or testnet — for testing functions without real money: keys live at
+https://testnet.1024ex.com/settings, accounts are separate, and a
+`--testnet` call needs a testnet-minted key. A testnet account starts
+empty; fund it with one signed call (no browser, no bridge):
+
+```bash
+python3 scripts/api.py --testnet GET  /api/v1/testnet/faucet/status
+python3 scripts/api.py --testnet POST /api/v1/testnet/faucet/claim '{}'
+```
+
+Credits itself only — there is no wallet parameter. Needs a main-account
+key with `canTrade`. Crediting is async (~30-40s): poll
+`/api/v1/accounts/me/overview` before sizing an order. Details:
+https://www.1024ex.com/skills/raw/00-quickstart/claim-testnet-usdc.md
+
+Empty account? Send the user to https://www.1024ex.com/deposit — the link
+opens the deposit dialog directly (chain picker, wallet connect, card
+on-ramp), prompting login first if needed. Testnet:
+https://testnet.1024ex.com/deposit. There is an API deposit flow too, but it
+only builds an unsigned stake tx that the user's own wallet still has to
+broadcast, so the link is the shorter path for anyone with a browser.
+Minimum is 5 USDC; crediting is async — confirm via
+`GET /api/v1/accounts/me/overview`.
 
 Headless alternative (no browser, agent-only environments): one wallet
 signature mints a key — fetch
@@ -96,11 +120,48 @@ DELETE /api/v1/perp/orders/{id}                per market: DELETE /orders/cancel
 GET    /api/v1/prediction/me/positions         also /me/orders /me/trades
 POST   /api/v1/prediction/orders               binary; multi-outcome: /multi-outcome/orders
 DELETE /api/v1/prediction/orders/cancel        body {"marketId":…,"orderId":…}
+POST   /api/v1/testnet/faucet/claim            testnet only; body {"amountE6"?:…}
 ```
+
+Prediction order bodies use **numeric enums and different field names** from
+perp — this shape, not the perp one:
+
+```json
+{"marketId":"1998","side":0,"outcomeIndex":0,"priceE6":650000,
+ "amount":100,"orderType":0,"clientOrderId":"agent-42-a"}
+```
+
+`side` 0=buy 1=sell · `outcomeIndex` 0=Yes 1=No · `amount` is a share count,
+not a dollar size. Sending perp-style `{"side":"buy","size":…}` fails with
+400 `REQ_INVALID_JSON`.
 
 **Symbol formats differ**: perp is `BTC-USDC` (dash), prediction takes a
 numeric `marketId`. Anything beyond this table (funding, TP/SL, advanced
 orders, treasury, streams) → Canonical docs below.
+
+## Confirm every order against the account
+
+A 2xx on `POST /orders` means accepted, not filled — the account is the
+only thing that settles the question. Read the position BEFORE placing, so
+you have something to compare against, then read it back after:
+
+```bash
+python3 scripts/api.py GET '/api/v1/perp/positions'    # a fill lands here
+python3 scripts/api.py GET '/api/v1/perp/orders'       # an unfilled limit rests here
+python3 scripts/api.py GET '/api/v1/perp/orders/history?market=BTC-USDC&limit=5'
+```
+
+A market order is never in `/orders` — filled, rejected and IOC-expired
+orders only exist in `/orders/history`, so check both. Prediction is the
+same drill on `/api/v1/prediction/me/positions?marketId=…` and
+`/api/v1/prediction/me/orders?marketId=…&limit=50` (that one carries every
+status, filled included; PM share counts are `sharesE6` micro-units).
+
+Then report what the account actually shows — the new position size and
+entry, or "resting on the book, nothing filled yet". **A position that did
+not move and no order row means the order did NOT land: say that, never
+"order placed".** Same after a close or a cancel — the position must really
+be gone (or smaller), the order really out of `/orders`.
 
 ## Rules that prevent losses
 
@@ -113,6 +174,13 @@ orders, treasury, streams) → Canonical docs below.
   `/api/v1/prediction/multi-outcome/orders`; a mismatch is rejected.
   Cancels are unified — and they are DELETE **with a JSON body** (the
   client signs it correctly).
+- **Perp orders are rejected past 15% from mark/index**, and this fires
+  BEFORE the balance check — a far-from-market resting limit comes back
+  400 `TRADE_PRICE_DEVIATION`, not "insufficient funds". Quote inside the
+  band or use a market order.
+- **Prediction BUY orders need ~$1 notional** (`amount x priceE6`, with a
+  one-share tolerance). Below it: 400 `REQ_INVALID_PARAMS` on `amount`.
+  Sells have no minimum — a dust position can always be closed.
 - Always pass `clientOrderId` (1-64 chars `[A-Za-z0-9_-]`) so retries are
   idempotent instead of duplicate orders.
 - Keys default to `canTrade: false` and can carry market allowlists — a
