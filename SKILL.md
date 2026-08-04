@@ -61,11 +61,29 @@ Covers everyday querying and order flow with zero doc fetches. Public
 market data needs no key:
 
 ```text
+GET /api/v1/prediction/search/unified?q=&limit=  keyword → perps + PM events + PM markets
 GET /api/v1/perp/markets                       tick/step, max leverage per market
 GET /api/v1/perp/markets/{m}/ticker            also /orderbook /klines /trades
-GET /api/v1/prediction/markets/active          also /trending /search?q= /markets/{id}
+GET /api/v1/prediction/markets/active          also /trending /markets/{id}
 GET /api/v1/prediction/markets/{id}/orderbook  also /depth /price-history
 ```
+
+**Start every "which market?" from unified search** — it is the only
+keyword lookup that spans both products, so one call turns "bitcoin" into
+a perp symbol AND the prediction markets on it. `limit` is per group
+(pass it explicitly; default varies by build, cap 25); the three groups
+are always present, empty when nothing matched. Response:
+
+```json
+{"query":"bitcoin",
+ "perps":[{"symbol":"BTC-USDC","maxLeverage":100,"status":"active","…":"…"}],
+ "collections":[{"collectionId":887,"name":"Bitcoin above ___ on August 4?","marketCount":8,"…":"…"}],
+ "markets":[{"marketId":35737,"question":"When will Bitcoin hit $150k?",
+             "marketType":"binary","yesPriceE6":36000,"endTime":"…","…":"…"}]}
+```
+
+`yesPriceE6` is meaningful for `binary` only; for `multi_outcome` read
+per-outcome prices from `/api/v1/prediction/markets/{id}/outcomes`.
 
 Account and trading (HMAC — always via `scripts/api.py`):
 
