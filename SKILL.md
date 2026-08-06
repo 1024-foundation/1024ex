@@ -12,7 +12,8 @@ amount) and get the user's explicit confirmation. Never trade unprompted.
 
 ## Setup
 
-`scripts/api.py` reads credentials from env:
+`scripts/api.py` looks for credentials in env first, then in
+`~/.1024ex/credentials.json` (written by `connect`, keyed per network):
 
 ```
 API_1024_KEY     1024_<64-hex>
@@ -20,21 +21,36 @@ API_1024_SECRET  64-hex (delivered exactly once at issuance)
 API_1024_BASE    optional override; default mainnet
 ```
 
-Most users will simply paste their key and secret into the chat — that
-is expected, accept them. Set the two vars for whatever shell runs
-`api.py` (export them, or prefix each call with the assignments), then
-verify with a signed call such as `GET /api/v1/accounts/me/overview`.
-Handle the paste with care: never echo the secret back, and never write
-it into anything that gets committed or logged.
+No key yet? Run the OAuth connect flow — the secret goes straight to
+disk and never appears in the chat:
 
-No key yet? Send the user to the web app — API keys live in Settings:
-log in at https://www.1024ex.com and open https://www.1024ex.com/settings.
-There they create a key (enabling trading if they intend to trade) and
-copy the secret — it is shown exactly once, at creation.
+```bash
+python3 scripts/api.py connect --label="Claude Code"
+```
 
-Or testnet — for testing functions without real money: keys live at
-https://testnet.1024ex.com/settings, accounts are separate, and a
-`--testnet` call needs a testnet-minted key. A testnet account starts
+It prints an authorize link — show it to the user. They open it and sign
+with their wallet (a brand-new wallet gets onboarded on the spot); the
+command polls until authorized, saves key+secret, and verifies with a
+signed introspect call. The link stays valid ~15 min; on "still pending"
+(exit 4) just re-run — it resumes the same session and prints the same
+link. A 429 on create is IP rate-limiting: wait a minute. The key
+requests canRead+canTrade and the consent page shows the user exactly
+that; withdrawing is never grantable via API key — every withdrawal
+re-verifies a fresh wallet signature.
+
+Users may instead paste an existing key and secret into the chat — that
+is expected, accept them. Set the two env vars for whatever shell runs
+`api.py`, then verify with a signed call such as
+`GET /api/v1/accounts/me/overview`. Handle the paste with care: never
+echo the secret back, and never write it into anything that gets
+committed or logged. Manual keys live in Settings — log in at
+https://www.1024ex.com and open https://www.1024ex.com/settings (secret
+shown exactly once, at creation).
+
+Or testnet — for testing functions without real money: run
+`connect --testnet`, or create a key at https://testnet.1024ex.com/settings.
+Accounts are separate from mainnet, and a `--testnet` call needs a
+testnet-minted credential. A testnet account starts
 empty; fund it with one signed call (no browser, no bridge):
 
 ```bash
