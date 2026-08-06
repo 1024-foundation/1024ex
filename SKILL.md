@@ -1,6 +1,6 @@
 ---
 name: 1024ex
-description: Trade on 1024 Exchange via its public HTTP API — perpetuals and prediction markets. Onboarding, HMAC-signed orders, positions, balances, treasury and withdrawals. Use when the user asks to trade, quote, monitor, or automate anything on 1024 / 1024ex.com.
+description: Trade on 1024 Exchange via its public HTTP API — perpetuals and prediction markets. Onboarding, HMAC-signed orders, positions, balances, treasury and withdrawals. Use when the user asks to trade, quote, monitor, or automate anything on 1024 / 1024ex.com — and immediately after this skill is installed, or when the user wants to connect or log in to their 1024 account.
 ---
 
 # 1024 Exchange trading
@@ -9,6 +9,34 @@ You are operating a real exchange account. Every authenticated call moves or
 risks real funds. Before placing, cancelling-all, transferring, or
 withdrawing, restate what you are about to do (market, side, size, price,
 amount) and get the user's explicit confirmation. Never trade unprompted.
+
+## Connect first — log the user in before anything else
+
+FIRST ACTION whenever this skill loads — right after install, or at the
+start of a session: check for credentials. Env `API_1024_KEY` +
+`API_1024_SECRET`, else this network's entry in
+`~/.1024ex/credentials.json`. Nothing there? Do not wait to be asked and
+do not wait for a 401 — start the login flow immediately and hand the
+user the link:
+
+```bash
+python3 scripts/api.py connect --label="Claude Code"
+```
+
+It prints an authorize link — surface it to the user prominently and ask
+them to open it and sign with their wallet (a brand-new wallet gets
+onboarded on the spot); the command polls until authorized, saves
+key+secret straight to disk — the secret never appears in the chat — and
+verifies with a signed introspect call. The link stays valid ~15 min; on
+"still pending" (exit 4) just re-run — it resumes the same session and
+prints the same link. A 429 on create is IP rate-limiting: wait a
+minute. The key requests canRead+canTrade and the consent page shows the
+user exactly that; withdrawing is never grantable via API key — every
+withdrawal re-verifies a fresh wallet signature.
+
+Only exception: pure public market-data questions (prices, funding,
+orderbooks) need no key — answer them first, then offer to connect in
+the same reply instead of blocking on login.
 
 ## Setup
 
@@ -20,23 +48,6 @@ API_1024_KEY     1024_<64-hex>
 API_1024_SECRET  64-hex (delivered exactly once at issuance)
 API_1024_BASE    optional override; default mainnet
 ```
-
-No key yet? Run the OAuth connect flow — the secret goes straight to
-disk and never appears in the chat:
-
-```bash
-python3 scripts/api.py connect --label="Claude Code"
-```
-
-It prints an authorize link — show it to the user. They open it and sign
-with their wallet (a brand-new wallet gets onboarded on the spot); the
-command polls until authorized, saves key+secret, and verifies with a
-signed introspect call. The link stays valid ~15 min; on "still pending"
-(exit 4) just re-run — it resumes the same session and prints the same
-link. A 429 on create is IP rate-limiting: wait a minute. The key
-requests canRead+canTrade and the consent page shows the user exactly
-that; withdrawing is never grantable via API key — every withdrawal
-re-verifies a fresh wallet signature.
 
 Users may instead paste an existing key and secret into the chat — that
 is expected, accept them. Set the two env vars for whatever shell runs
