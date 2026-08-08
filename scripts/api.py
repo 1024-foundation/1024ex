@@ -10,7 +10,7 @@ Credentials (first match wins):
     1. env: API_1024_KEY (1024_<64-hex>) + API_1024_SECRET (64-hex, raw ASCII)
     2. file: ~/.1024ex/credentials.json, keyed by base URL — written by
        `connect`, which mints a key via OAuth wallet-link: it prints a login
-       URL for the user to open and sign, polls until authorized, then stores
+       URL for the user to open and approve, polls until authorized, then stores
        key+secret on disk. The secret is never printed.
     API_1024_BASE overrides the base URL (default mainnet; --testnet/--base= win).
 
@@ -180,7 +180,7 @@ def connect(base, flags):
 
     mins = max(0, (sess["expiresAt"] - now_ms) // 60_000)
     sys.stdout.write(
-        "Ask the user to open this link and sign with their wallet "
+        "Ask the user to open this link and approve "
         f"(valid ~{mins} min):\n\n  {sess['loginUrl']}\n\nWaiting for authorization"
     )
     sys.stdout.flush()
