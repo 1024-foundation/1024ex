@@ -23,16 +23,21 @@ user the link:
 python3 scripts/api.py connect --label="Claude Code"
 ```
 
-It prints an authorize link — surface it to the user prominently and ask
-them to open it and sign with their wallet (a brand-new wallet gets
-onboarded on the spot); the command polls until authorized, saves
-key+secret straight to disk — the secret never appears in the chat — and
-verifies with a signed introspect call. The link stays valid ~15 min; on
-"still pending" (exit 4) just re-run — it resumes the same session and
-prints the same link. A 429 on create is IP rate-limiting: wait a
-minute. The key requests canRead+canTrade and the consent page shows the
-user exactly that; withdrawing is never grantable via API key — every
-withdrawal re-verifies a fresh wallet signature.
+It prints an authorize link — surface it to the user prominently. What
+they see there depends on the browser: already signed in to 1024 and it
+is a single **Authorize** click, no wallet and no signature; otherwise
+they sign in on the spot — MetaMask/EVM or Phantom, or "More sign-in
+options" for WalletConnect, Coinbase, OKX, Trust, Rainbow, Google, X and
+Email (a brand-new wallet gets onboarded right there). So do not promise
+them a wallet signature — say "open the link and approve". Meanwhile the
+command polls until authorized, saves key+secret straight to disk — the
+secret never appears in the chat — and verifies with a signed introspect
+call. The link stays valid ~15 min; on "still pending" (exit 4) just
+re-run — it resumes the same session and prints the same link. A 429 on
+create is IP rate-limiting: wait a minute. The key requests
+canRead+canTrade and the consent page shows the user exactly that;
+withdrawing is never grantable via API key — every withdrawal
+re-verifies a fresh wallet signature.
 
 Only exception: pure public market-data questions (prices, funding,
 orderbooks) need no key — answer them first, then offer to connect in
