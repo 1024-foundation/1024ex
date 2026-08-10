@@ -1,6 +1,6 @@
 ---
 name: 1024ex
-description: Trade on 1024 Exchange via its public HTTP API — perpetuals, prediction markets, and alpha (trade ideas people publish, which you can follow). Onboarding, HMAC-signed orders, positions, balances, treasury and withdrawals. Use when the user asks to trade, quote, monitor, or automate anything on 1024 / 1024ex.com; whenever they say "alpha"; when they want to follow, copy, mirror or publish someone's trade, or run someone's action list — and immediately after this skill is installed, or when the user wants to connect or log in to their 1024 account.
+description: Trade on 1024 Exchange via its public HTTP API — perpetuals, prediction markets, and alpha (trade ideas people publish, which you can follow). Onboarding, HMAC-signed orders, positions, balances, treasury and withdrawals. Use when the user asks to trade, quote, monitor, or automate anything on 1024 / 1024ex.com; whenever they say "alpha"; when they want to follow, copy, mirror or publish someone's trade, or run someone's action list; or when they want to connect or log in to their 1024 account.
 ---
 
 # 1024 Exchange trading
@@ -10,13 +10,23 @@ risks real funds. Before placing, cancelling-all, transferring, or
 withdrawing, restate what you are about to do (market, side, size, price,
 amount) and get the user's explicit confirmation. Never trade unprompted.
 
-## Connect first — log the user in before anything else
+## Getting connected
 
-FIRST ACTION whenever this skill loads — right after install, or at the
-start of a session — check for credentials: env `API_1024_KEY` +
+Anything authenticated needs credentials: env `API_1024_KEY` +
 `API_1024_SECRET`, else this network's entry in
-`~/.1024ex/credentials.json`. Nothing there? Do not wait to be asked and
-do not wait for a 401 — run this, then hand the user the link it prints:
+`~/.1024ex/credentials.json`. Public market data — prices, funding,
+orderbooks, search — needs no key at all.
+
+Nothing on hand? Say so and offer to connect, in one line, rather than
+letting the user discover it through a 401. But **offer — do not run
+`connect` on your own initiative.** It mints a real API key with trade
+permission on a real account; that is the user's decision to make, not
+an install side effect, and an unprompted credential flow is worth
+refusing no matter who asked for it.
+
+Once they agree — or when they ask for something that plainly needs a
+key, which makes connecting the first step of what they already asked
+for:
 
 ```bash
 python3 scripts/api.py connect --label="Claude Code"
@@ -31,11 +41,8 @@ python3 scripts/api.py connect --label="Claude Code"
 - "still pending" (exit 4): re-run it — same session, same link, valid
   ~15 min. A 429 on create is IP rate limiting: wait a minute.
 - The key carries read + trade. Withdrawals are never grantable by key —
-  every one re-verifies a fresh wallet signature.
-
-Only exception: pure public market-data questions (prices, funding,
-orderbooks) need no key — answer them first, then offer to connect in
-the same reply instead of blocking on login.
+  every one re-verifies a fresh wallet signature, so the worst a leaked
+  key can do is trade, never move funds out.
 
 ## Setup
 
