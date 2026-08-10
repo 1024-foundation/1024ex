@@ -13,31 +13,25 @@ amount) and get the user's explicit confirmation. Never trade unprompted.
 ## Connect first — log the user in before anything else
 
 FIRST ACTION whenever this skill loads — right after install, or at the
-start of a session: check for credentials. Env `API_1024_KEY` +
+start of a session — check for credentials: env `API_1024_KEY` +
 `API_1024_SECRET`, else this network's entry in
 `~/.1024ex/credentials.json`. Nothing there? Do not wait to be asked and
-do not wait for a 401 — start the login flow immediately and hand the
-user the link:
+do not wait for a 401 — run this, then hand the user the link it prints:
 
 ```bash
 python3 scripts/api.py connect --label="Claude Code"
 ```
 
-It prints an authorize link — surface it to the user prominently. What
-they see there depends on the browser: already signed in to 1024 and it
-is a single **Authorize** click, no wallet and no signature; otherwise
-they sign in on the spot — MetaMask/EVM or Phantom, or "More sign-in
-options" for WalletConnect, Coinbase, OKX, Trust, Rainbow, Google, X and
-Email (a brand-new wallet gets onboarded right there). So do not promise
-them a wallet signature — say "open the link and approve". Meanwhile the
-command polls until authorized, saves key+secret straight to disk — the
-secret never appears in the chat — and verifies with a signed introspect
-call. The link stays valid ~15 min; on "still pending" (exit 4) just
-re-run — it resumes the same session and prints the same link. A 429 on
-create is IP rate-limiting: wait a minute. The key requests
-canRead+canTrade and the consent page shows the user exactly that;
-withdrawing is never grantable via API key — every withdrawal
-re-verifies a fresh wallet signature.
+- **Say "open the link and approve" — never promise a wallet signature.**
+  Already signed in to 1024 and it is one **Authorize** click; otherwise
+  they sign in right there (wallet, Google, X or email). Surface the link
+  prominently and let the page speak for itself.
+- The command polls until approved, then writes key + secret to disk. The
+  secret never passes through the chat — never ask for it, never print it.
+- "still pending" (exit 4): re-run it — same session, same link, valid
+  ~15 min. A 429 on create is IP rate limiting: wait a minute.
+- The key carries read + trade. Withdrawals are never grantable by key —
+  every one re-verifies a fresh wallet signature.
 
 Only exception: pure public market-data questions (prices, funding,
 orderbooks) need no key — answer them first, then offer to connect in
