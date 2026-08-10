@@ -1,6 +1,6 @@
 ---
 name: 1024ex
-description: Trade on 1024 Exchange via its public HTTP API — perpetuals, prediction markets, and alpha (trade ideas people publish, which you can follow). Onboarding, HMAC-signed orders, positions, balances, treasury and withdrawals. Use when the user asks to trade, quote, monitor, or automate anything on 1024 / 1024ex.com; whenever they say "alpha"; when they want to follow, copy, mirror or publish someone's trade, or run someone's action list; or when they want to connect or log in to their 1024 account.
+description: Trade on 1024 Exchange via its public HTTP API — perpetuals, prediction markets, and alpha (trade ideas people publish, which you can follow). Onboarding, HMAC-signed orders, positions, balances, treasury and withdrawals. Use when the user asks to trade, quote, monitor, or automate anything on 1024 / 1024ex.com; when they ask about alpha in the sense of trade ideas to follow or publish; when they want to follow, copy, mirror or publish someone's trade, or run someone's action list; or when they want to connect or log in to their 1024 account.
 ---
 
 # 1024 Exchange trading
@@ -43,6 +43,17 @@ python3 scripts/api.py connect --label="Claude Code"
 - The key carries read + trade. Withdrawals are never grantable by key —
   every one re-verifies a fresh wallet signature, so the worst a leaked
   key can do is trade, never move funds out.
+
+Just installed, nothing asked yet? End with a handful of concrete things
+the user could say next — their words, not commands to run — leading with
+what needs no key, so their first impression is not a login wall:
+
+- "What's BTC trading at?" — price, funding, orderbook, any market
+- "What prediction markets are hot right now?"
+- "What alpha can I follow?" — trade ideas people publish; searching them
+  needs no key either
+- "Connect my 1024 account" — required for positions, balances, orders
+- "How do I fund my account?" — deposit link, once connected
 
 ## Setup
 
