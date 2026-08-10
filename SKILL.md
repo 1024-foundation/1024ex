@@ -1,6 +1,6 @@
 ---
 name: 1024ex
-description: Trade on 1024 Exchange via its public HTTP API — perpetuals and prediction markets. Onboarding, HMAC-signed orders, positions, balances, treasury and withdrawals. Use when the user asks to trade, quote, monitor, or automate anything on 1024 / 1024ex.com — and immediately after this skill is installed, or when the user wants to connect or log in to their 1024 account.
+description: Trade on 1024 Exchange via its public HTTP API — perpetuals, prediction markets, and alpha (trade ideas people publish, which you can follow). Onboarding, HMAC-signed orders, positions, balances, treasury and withdrawals. Use when the user asks to trade, quote, monitor, or automate anything on 1024 / 1024ex.com; whenever they say "alpha"; when they want to follow, copy, mirror or publish someone's trade, or run someone's action list — and immediately after this skill is installed, or when the user wants to connect or log in to their 1024 account.
 ---
 
 # 1024 Exchange trading
@@ -171,23 +171,31 @@ not a dollar size. Sending perp-style `{"side":"buy","size":…}` fails with
 numeric `marketId`. Anything beyond this table (funding, TP/SL, advanced
 orders, treasury, streams) → Canonical docs below.
 
-Alpha — publish a trade idea, find one, or trade someone's action list
-(a watchlist whose legs carry preset order params):
+## Alpha — the trade ideas people publish here
 
-```text
-GET  /api/v1/alpha/search?q=            public — lists + tickets + signals
-POST /api/v1/alpha/lists                publish a list of legs + params, atomically
-POST /api/v1/alpha/lists/{id}/plan      resolve those params vs live market → orders
-POST /api/v1/alpha/lists/{id}/execute   place the plan, leg by leg
-POST /api/v1/alpha/tickets              mint a ticket for a position you hold
-```
+**"Alpha" is 1024's word for a trade idea someone published, and following
+one is a first-class flow — not a generic order.** Route to this section
+the moment the user says *alpha*, *action list*, *跟单*, or asks to
+*follow* / *copy* / *mirror* somebody's trade, *run someone's list*, or
+*share* / *publish* their own. The user does not have to know the word
+"action list" — if they want to trade what someone else is trading, they
+are asking for this.
+
+| The user wants to… | What it is | Call |
+| --- | --- | --- |
+| find something worth following | published **action lists** (a watchlist whose legs carry preset order params), position-backed **tickets**, and a generated **signal** feed | `GET /api/v1/alpha/search?q=` — public, no key |
+| follow one | resolve the curator's params against the live market, then place it leg by leg | `POST /alpha/lists/{id}/plan` → `POST /alpha/lists/{id}/execute` |
+| publish their own | a list of legs + params, written atomically; or a ticket backing a position they hold | `POST /alpha/lists` · `POST /alpha/tickets` |
 
 **Never execute a list without planning it first** — `plan` is the only
 thing that interprets curator params, and its `skipped` / `warnings` are
 the only honest account of what will actually be placed. `execute`
-partially succeeds by design; read `legs[].status` one by one. Details:
-`15-alpha/alpha-publish`, `15-alpha/alpha-search`,
-`15-alpha/alpha-action-list`.
+partially succeeds by design; read `legs[].status` one by one. Size is
+always the follower's, never the author's: `plan` takes `budgetUsd` (or
+`perLegMarginUsd`) plus `leverage`, and `dryRun: true` on `execute`
+rehearses the whole thing without placing. Details:
+`15-alpha/alpha-search`, `15-alpha/alpha-action-list`,
+`15-alpha/alpha-publish`.
 
 ## Confirm every order against the account
 
@@ -257,9 +265,9 @@ https://www.1024ex.com/llms-full.txt · index: https://www.1024ex.com/llms.txt
 - 10-discover/prediction-discovery — Find markets from a keyword — unified search (perps + collections + markets) plus the filtered PM list, shelves, categories and tags.
 - 10-discover/prediction-market-data — Per-market PM data — detail, outcomes, orderbook/depth with the LP virtual ladder, prices, klines, trades, media.
 - 10-discover/watchlists — Cross-product watchlists — perp/PM items with stance; share, clone, community. Same lists the web app shows.
-- 15-alpha/alpha-action-list — Execute an alpha's action list — the curator param vocabulary, the server-side plan that resolves it into real orders, and per-leg execution.
-- 15-alpha/alpha-publish — Publish, edit, unpublish and delete alpha — action lists (parameterized watchlists) and position-backed tickets others can verify and clone.
-- 15-alpha/alpha-search — Find alpha — one keyword across published action lists, position-backed tickets and the server signal feed. Public, no key.
+- 15-alpha/alpha-action-list — Follow someone's alpha — copy-trading an action list end to end: the curator param vocabulary, the server-side plan that resolves it into real orders, and per-leg execution.
+- 15-alpha/alpha-publish — Publish your own alpha for others to follow — action lists (parameterized watchlists) and position-backed tickets others can verify and clone, plus editing, unpublishing and deleting them.
+- 15-alpha/alpha-search — Find alpha worth following — one keyword across published action lists, position-backed tickets and the server signal feed. Start here when the user asks what to follow or copy. Public, no key.
 - 20-trade/advanced-orders — 11 perp algo order types — conditional, twap, vwap, scale, oco, bracket, iceberg, pegged, pov, trailing-stop, sniper.
 - 20-trade/close-position — Close a perp position full or partial. The price param is accepted but never applied — always a market close.
 - 20-trade/leverage-and-margin — Read/set per-market leverage and add/remove position margin. Request bodies are snake_case here.
