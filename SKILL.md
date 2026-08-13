@@ -1,6 +1,6 @@
 ---
 name: 1024ex
-description: Trade on 1024 Exchange via its public HTTP API — perpetuals, prediction markets, and alpha (trading opportunities mined by AI and data, published so anyone can execute them in two calls). Onboarding, HMAC-signed orders, positions, balances, treasury and withdrawals. Use when the user asks to trade, quote, monitor, or automate anything on 1024 / 1024ex.com; when they ask what is worth trading, want to act on someone's published alpha or action list, or want to publish their own; or when they want to connect or log in to their 1024 account.
+description: Trade on 1024 Exchange via its public HTTP API — perpetuals, prediction markets, and alpha (trading opportunities mined by AI and data, published so anyone can execute them in two calls). Onboarding, HMAC-signed orders, positions, balances, treasury and withdrawals. Use when the user asks to trade, quote, monitor, or automate anything on 1024 / 1024ex.com; when they ask what is worth trading, want to act on someone's published alpha or action list, or want to publish their own; when they ask what trading strategies people have published on 1024 / AgentX and how those performed; or when they want to connect or log in to their 1024 account.
 ---
 
 # 1024 Exchange trading
@@ -52,6 +52,8 @@ what needs no key, so their first impression is not a login wall:
 - "What prediction markets are hot right now?"
 - "What alpha is worth trading right now?" — mined opportunities others
   published; searching them needs no key either
+- "What strategies have people published on 1024?" — the AgentX shelf,
+  also keyless
 - "Connect my 1024 account" — required for positions, balances, orders
 - "How do I fund my account?" — deposit link, once connected
 
@@ -218,6 +220,36 @@ kind: it must be backed by a position they actually hold, so it proves
 the trade was real. Details: `15-alpha/alpha-search`,
 `15-alpha/alpha-action-list`, `15-alpha/alpha-publish`.
 
+## Strategies — what people published on AgentX
+
+A **strategy** is a program someone wrote in 1024's AgentX: one `main.py`,
+backtested on the platform's benchmark data, deployed to trade live off the
+same file. Publishing freezes it — the exact code plus the backtest the
+platform ran on it — onto a public shelf. Read the shelf with one keyless
+call, on the **AgentX host, not `$API`**, and note the reply is a bare JSON
+array with no `{success, data}` envelope:
+
+```bash
+curl -s https://ai-agent-mainnet.1024ex.com/store/listings
+```
+
+Takes no query parameters; returns every published listing, newest first —
+sort and filter client-side. Per listing: `title`, `description`,
+`strategyType` (`perp` | `pm`), `installCount`, `mainPyHash`, and
+`backtest.statistics` **formatted for display** (`"Total Return": "-7.37%"`,
+`"Sharpe Ratio": "-153.326"`) — parse before comparing.
+
+- **`pm` listings never backtest**: `success:false`, `statistics:{}`. That
+  is the track's design, not a loss — never render it as 0% or a failure.
+- Every number is the author's **backtest**, not live PnL. Say so. The
+  shelf carries losing strategies, and `installCount` counts clones.
+- **Only the shelf is public.** The source (`/store/listings/{id}`),
+  cloning and publishing all need an app login — an API key does not open
+  them. Send the user to https://www.1024ex.com/strategy for those.
+
+Details, including the field table and testnet host:
+`16-strategies/strategy-store`.
+
 ## Confirm every order against the account
 
 A 2xx on `POST /orders` means accepted, not filled — the account is the
@@ -289,6 +321,7 @@ https://www.1024ex.com/llms-full.txt · index: https://www.1024ex.com/llms.txt
 - 15-alpha/alpha-action-list — Execute a published alpha end to end — the curator param vocabulary, the server-side plan that resolves it into concrete orders for your account, and per-leg execution. Your size, not theirs; one deliberate placement, not copy trading.
 - 15-alpha/alpha-publish — Publish alpha you mined yourself — action lists anyone can execute and position-backed tickets anyone can verify, plus editing, unpublishing and deleting them. One signed call, whatever found the opportunity.
 - 15-alpha/alpha-search — Find a mined opportunity worth taking — one keyword across published action lists, position-backed tickets and the server signal feed. Start here when the user asks what is worth trading right now. Public, no key.
+- 16-strategies/strategy-store — Browse the automated strategies people published on 1024's AgentX — frozen code carrying the backtest the platform itself ran. One public GET, no key. Reading the source, cloning and publishing stay behind an app login.
 - 20-trade/advanced-orders — 11 perp algo order types — conditional, twap, vwap, scale, oco, bracket, iceberg, pegged, pov, trailing-stop, sniper.
 - 20-trade/close-position — Close a perp position full or partial. The price param is accepted but never applied — always a market close.
 - 20-trade/leverage-and-margin — Read/set per-market leverage and add/remove position margin. Request bodies are snake_case here.
