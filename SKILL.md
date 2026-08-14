@@ -1,6 +1,6 @@
 ---
 name: 1024ex
-description: Trade on 1024 Exchange via its public HTTP API — perpetuals, prediction markets, and alpha (trading opportunities mined by AI and data, published so anyone can execute them in two calls). Onboarding, HMAC-signed orders, positions, balances, treasury and withdrawals. Use when the user asks to trade, quote, monitor, or automate anything on 1024 / 1024ex.com; when they ask what is worth trading, want to act on someone's published alpha or action list, or want to publish their own; when they ask what trading strategies people have published on 1024 / AgentX and how those performed; or when they want to connect or log in to their 1024 account.
+description: Trade on 1024 Exchange via its public HTTP API — perpetuals, prediction markets, and alpha (trading opportunities mined by AI and data, published so anyone can execute them in two calls). Onboarding, HMAC-signed orders, positions, balances, treasury and withdrawals. Use when the user asks to trade, quote, monitor, or automate anything on 1024 / 1024ex.com; when they ask what is worth trading, want to act on someone's published alpha or action list, or want to publish their own; when they ask what trading strategies people have published on 1024 / AgentX and how those performed, or want to publish a strategy they wrote; or when they want to connect or log in to their 1024 account.
 ---
 
 # 1024 Exchange trading
@@ -220,14 +220,12 @@ kind: it must be backed by a position they actually hold, so it proves
 the trade was real. Details: `15-alpha/alpha-search`,
 `15-alpha/alpha-action-list`, `15-alpha/alpha-publish`.
 
-## Strategies — what people published on AgentX
+## Strategies — read the shelf, or put your own code on it
 
-A **strategy** is a program someone wrote in 1024's AgentX: one `main.py`,
-backtested on the platform's benchmark data, deployed to trade live off the
-same file. Publishing freezes it — the exact code plus the backtest the
-platform ran on it — onto a public shelf. Read the shelf with one keyless
-call, on the **AgentX host, not `$API`**, and note the reply is a bare JSON
-array with no `{success, data}` envelope:
+A **strategy** is a program that keeps trading: one `main.py`, run by the
+platform. The public shelf carries the ones people published. Reading it is
+keyless but lives on the **AgentX host, not `$API`**, and answers a bare
+JSON array with no `{success, data}` envelope:
 
 ```bash
 curl -s https://ai-agent-mainnet.1024ex.com/store/listings
@@ -243,12 +241,29 @@ sort and filter client-side. Per listing: `title`, `description`,
   is the track's design, not a loss — never render it as 0% or a failure.
 - Every number is the author's **backtest**, not live PnL. Say so. The
   shelf carries losing strategies, and `installCount` counts clones.
-- **Only the shelf is public.** The source (`/store/listings/{id}`),
-  cloning and publishing all need an app login — an API key does not open
-  them. Send the user to https://www.1024ex.com/strategy for those.
+- Reading someone else's **source** (`/store/listings/{id}`) and **cloning**
+  need an app login — an API key does not open them. Send the user to
+  https://www.1024ex.com/strategy for those.
 
-Details, including the field table and testnet host:
-`16-strategies/strategy-store`.
+Publishing a strategy you wrote runs the other way — on `$API`, one signed
+call, no session:
+
+```bash
+python3 scripts/api.py POST /api/v1/strategies \
+  '{"title":"BTC 5m momentum flip","code":"<the whole main.py>"}'
+```
+
+The server decides the rest: track from the code (`.subscribe_prediction(`
+→ `pm`), owner from the key, identity from the byte-exact sha256 of `code`
+— so republishing the same bytes is **409**, never a duplicate card, and a
+retry after a timeout is safe. **This path never backtests**: the card
+lands with `backtest.success:false`, like a PM listing. Numbers come only
+from strategies the platform ran itself, in AgentX — say that instead of
+implying the listing was validated. It is public and effectively permanent:
+never publish code the user did not ask to share.
+
+Details, including the field table, the publish errors and the testnet
+host: `16-strategies/strategy-store`.
 
 ## Confirm every order against the account
 
@@ -321,7 +336,7 @@ https://www.1024ex.com/llms-full.txt · index: https://www.1024ex.com/llms.txt
 - 15-alpha/alpha-action-list — Execute a published alpha end to end — the curator param vocabulary, the server-side plan that resolves it into concrete orders for your account, and per-leg execution. Your size, not theirs; one deliberate placement, not copy trading.
 - 15-alpha/alpha-publish — Publish alpha you mined yourself — action lists anyone can execute and position-backed tickets anyone can verify, plus editing, unpublishing and deleting them. One signed call, whatever found the opportunity.
 - 15-alpha/alpha-search — Find a mined opportunity worth taking — one keyword across published action lists, position-backed tickets and the server signal feed. Start here when the user asks what is worth trading right now. Public, no key.
-- 16-strategies/strategy-store — Browse the automated strategies people published on 1024's AgentX — frozen code carrying the backtest the platform itself ran. One public GET, no key. Reading the source, cloning and publishing stay behind an app login.
+- 16-strategies/strategy-store — Browse the automated strategies people published on 1024's AgentX, and publish one of your own with a single signed call — code you wrote, listed unbacktested. Reading someone else's source and cloning stay behind an app login.
 - 20-trade/advanced-orders — 11 perp algo order types — conditional, twap, vwap, scale, oco, bracket, iceberg, pegged, pov, trailing-stop, sniper.
 - 20-trade/close-position — Close a perp position full or partial. The price param is accepted but never applied — always a market close.
 - 20-trade/leverage-and-margin — Read/set per-market leverage and add/remove position margin. Request bodies are snake_case here.
