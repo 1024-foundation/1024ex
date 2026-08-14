@@ -197,9 +197,19 @@ framing), or ask what is worth trading right now.
 
 | The user wants to… | What it is | Call |
 | --- | --- | --- |
-| see what is out there | published **action lists** (legs carrying preset order params), position-backed **tickets**, and a machine-generated **signal** feed | `GET /api/v1/alpha/search?q=` — public, no key |
+| see what is out there | published **action lists** (legs carrying preset order params), position-backed **tickets**, and a machine-generated **signal** feed | `GET /api/v1/alpha/lists?withPerf=true` (filters `q` `symbol` `sort=hot`); `GET /api/v1/alpha/search?q=` adds tickets + signals — public, no key |
 | act on one | resolve the author's params against the live market, then place leg by leg | `POST /alpha/lists/{id}/plan` → `POST /alpha/lists/{id}/execute` |
 | publish their own | legs + params, written atomically; or a ticket backing a position they hold | `POST /alpha/lists` · `POST /alpha/tickets` |
+
+**Always ask for `withPerf=true` when listing alpha, and report the number
+with what it is.** `perf.returnPct` is the same figure the web card shows —
+every leg measured from the moment it entered the list, equal-weight,
+unlevered, stance-signed (`window: sincePublished`, `basis:
+equalWeightUnlevered`). It is **paper**: no entry slippage, no leverage, no
+fees or funding, and no tp/sl exit, so a follower's result differs by all
+four. `returnPct: null` means it could not be computed (`validLegs` /
+`excluded` say why) — never render that as 0.00%. `/alpha/search` has no
+`withPerf`; use `/alpha/lists` when the number matters.
 
 `plan` turns a published idea into the exact orders for *this* account;
 `execute` places them. **Never execute without planning first** — `plan`
