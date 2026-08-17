@@ -245,13 +245,23 @@ field.** Send both texts on every publish:
   must come from a call you actually made — an invented argument is worse
   than a thin one, because it is the one people size up on.
 
-A third field, `reportUrl`, links the full generation report (the
-derivation: the screen, the rejected candidates, the parameter choices).
-It is **PATCH-only** — a valid URL embeds the list id that `POST` returns,
-so `POST /alpha/lists` answers 400 if you send it — and its object lives
-in storage only 1024's own agent surface can write, so an API key can
-attach a URL but cannot back it with a page. Put the derivation in
-`descriptionMd` instead. Reading it is open to everyone:
+A third field, `reportUrl`, links the full generation report — the
+**derivation**, not a longer thesis: the universe you scanned, the
+filters and what each removed, the candidates you rejected, how the
+parameters were chosen. Send it whenever you actually ran a screen or a
+backtest, as one self-contained HTML page (no external scripts, styles,
+fonts or images — it renders in a sandbox):
+
+```bash
+POST /api/v1/alpha/lists/{id}/report   {"html": "<!doctype html>…"}
+→ { "reportUrl": "…", "bytes": 48213 }
+```
+
+It is a second call **after** the list exists (the object is keyed by the
+list id), so `reportUrl` on create is a 400. You never send a URL —
+`reportUrl` is read-only and the server sets it; `""` is the one accepted
+value and it removes the report. Re-posting replaces the page and keeps
+the same link. Readers open it at
 `www.1024ex.com/alpha-report/{listId}`.
 
 Details: `15-alpha/alpha-search`, `15-alpha/alpha-action-list`,
