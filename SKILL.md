@@ -206,8 +206,11 @@ unlevered, stance-signed (`window: sincePublished`, `basis:
 equalWeightUnlevered`). It is **paper**: no entry slippage, no leverage, no
 fees or funding, and no tp/sl exit, so a follower's result differs by all
 four. `returnPct: null` means it could not be computed (`validLegs` /
-`excluded` say why) — never render that as 0.00%. `/alpha/search` has no
-`withPerf`; use `/alpha/lists` when the number matters.
+`excluded` say why) — never render that as 0.00%. `perf.unmoved: true`
+means no leg has re-priced since the anchor (what US equity legs look like
+out of hours) — report that as "has not moved since publication", never as
+"flat". `/alpha/search` has no `withPerf`; use `/alpha/lists` when the
+number matters.
 
 `plan` turns a published idea into the exact orders for *this* account;
 `execute` places them. **Never execute without planning first** — `plan`
@@ -225,8 +228,34 @@ Publishing runs the other way and is just as short: one signed
 call. Where the idea came from does not matter — the user's own model,
 this agent, a strategy they run on 1024's AgentX. A ticket is the other
 kind: it must be backed by a position they actually hold, so it proves
-the trade was real. Details: `15-alpha/alpha-search`,
-`15-alpha/alpha-action-list`, `15-alpha/alpha-publish`.
+the trade was real.
+
+**A list is legs plus the argument behind them, and the argument is a
+field.** Send both texts on every publish:
+
+- `description` — one plain-text sentence, ≤512 chars. The card subtitle
+  and the search row; write it standalone.
+- `descriptionMd` — the reasoning in full, markdown, ≤4000 chars. This is
+  what the card and detail page render. Cover the mechanism you are
+  betting on (not just the direction), the specific numbers you read
+  **and when you read them**, why these legs in this shape, the entry /
+  stop / target reasoning behind `defaultCfg` in words, what would make
+  the thesis wrong, and what you are not claiming. `?q=` searches it, so
+  a ticker that appears only in the body is still findable. Every figure
+  must come from a call you actually made — an invented argument is worse
+  than a thin one, because it is the one people size up on.
+
+A third field, `reportUrl`, links the full generation report (the
+derivation: the screen, the rejected candidates, the parameter choices).
+It is **PATCH-only** — a valid URL embeds the list id that `POST` returns,
+so `POST /alpha/lists` answers 400 if you send it — and its object lives
+in storage only 1024's own agent surface can write, so an API key can
+attach a URL but cannot back it with a page. Put the derivation in
+`descriptionMd` instead. Reading it is open to everyone:
+`www.1024ex.com/alpha-report/{listId}`.
+
+Details: `15-alpha/alpha-search`, `15-alpha/alpha-action-list`,
+`15-alpha/alpha-publish`.
 
 ## Confirm every order against the account
 
@@ -297,7 +326,7 @@ https://www.1024ex.com/llms-full.txt · index: https://www.1024ex.com/llms.txt
 - 10-discover/prediction-market-data — Per-market PM data — detail, outcomes, orderbook/depth with the LP virtual ladder, prices, klines, trades, media.
 - 10-discover/watchlists — Cross-product watchlists — perp/PM items with stance; share, clone, community. Same lists the web app shows.
 - 15-alpha/alpha-action-list — Execute a published alpha end to end — the curator param vocabulary, the server-side plan that resolves it into concrete orders for your account, and per-leg execution. Your size, not theirs; one deliberate placement, not copy trading.
-- 15-alpha/alpha-publish — Publish alpha you mined yourself — action lists anyone can execute and position-backed tickets anyone can verify, plus editing, unpublishing and deleting them. One signed call, whatever found the opportunity.
+- 15-alpha/alpha-publish — Publish alpha you mined yourself — action lists anyone can execute and position-backed tickets anyone can verify, plus the three texts that carry the argument (one-line summary, markdown thesis, generation report) and editing, unpublishing and deleting. One signed call, whatever found the opportunity.
 - 15-alpha/alpha-search — Find a mined opportunity worth taking — one keyword across published action lists, position-backed tickets and the server signal feed. Start here when the user asks what is worth trading right now. Public, no key.
 - 20-trade/advanced-orders — 11 perp algo order types — conditional, twap, vwap, scale, oco, bracket, iceberg, pegged, pov, trailing-stop, sniper.
 - 20-trade/close-position — Close a perp position full or partial. The price param is accepted but never applied — always a market close.
