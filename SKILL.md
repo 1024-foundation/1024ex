@@ -245,6 +245,13 @@ field.** Send both texts on every publish:
   must come from a call you actually made — an invented argument is worse
   than a thin one, because it is the one people size up on.
 
+**Every leg that carries params needs an exit.** Give each perp leg
+`exit.tpPct`/`tpPrice` **and** `exit.slPct`/`slPrice`, each market-mode
+prediction leg `guardTpC` **and** `guardSlC` — half an exit, or a bare
+leg sitting in an armed basket, is what a follower's client turns into a
+trade with nothing closing it. The web app's publish path enforces this;
+`POST /alpha/lists` does not, so it is on you.
+
 A third field, `reportUrl`, links the full generation report — the
 **derivation**, not a longer thesis: the universe you scanned, the
 filters and what each removed, the candidates you rejected, how the
@@ -295,6 +302,12 @@ be gone (or smaller), the order really out of `/orders`.
 
 - **Omitting `leverage` on a perp order gives the market's MAXIMUM
   leverage, not 1x.** Set it explicitly on every order.
+- **Off-session markets cap new risk at 2x leverage and $1,000
+  notional** — armed when a market's price is on the fallback feed or its
+  content has gone stale (equity perps outside their session). Over
+  either: 400 `REQ_INVALID_PARAMS` on `leverage` or `qty`. It applies to
+  the 11 advanced order types as well, measured on the algo's total size,
+  and reduce-only is exempt only when a real position backs it.
 - **Prediction `priceE6` lives on a 0.1¢ grid**: a multiple of 1000,
   inside [1000, 999000]. Off-grid → 400 `REQ_INVALID_PRICE`.
 - **Prediction routes are typed**: binary markets on
