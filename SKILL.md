@@ -249,8 +249,11 @@ field.** Send both texts on every publish:
 `exit.tpPct`/`tpPrice` **and** `exit.slPct`/`slPrice`, each market-mode
 prediction leg `guardTpC` **and** `guardSlC` — half an exit, or a bare
 leg sitting in an armed basket, is what a follower's client turns into a
-trade with nothing closing it. The web app's publish path enforces this;
-`POST /alpha/lists` does not, so it is on you.
+trade with nothing closing it. The web app's publish path enforces this
+with a 400; `POST /alpha/lists` does not check at all — which makes it a
+rule you hold, not a rule that lapses because the server stayed quiet. A
+leg you cannot arm does not go into an armed list: drop the leg, or
+publish the whole basket watch-only.
 
 A third field, `reportUrl`, links the full generation report — the
 **derivation**, not a longer thesis: the universe you scanned, the
@@ -293,13 +296,30 @@ same drill on `/api/v1/prediction/me/positions?marketId=…` and
 status, filled included; PM share counts are `sharesE6` micro-units).
 
 Then report what the account actually shows — the new position size and
-entry, or "resting on the book, nothing filled yet". **A position that did
-not move and no order row means the order did NOT land: say that, never
-"order placed".** Same after a close or a cancel — the position must really
-be gone (or smaller), the order really out of `/orders`.
+entry **plus the two exit levels now attached to it**, or "resting on the
+book, nothing filled yet". **A position that did not move and no order row
+means the order did NOT land: say that, never "order placed".** Same after
+a close or a cancel — the position must really be gone (or smaller), the
+order really out of `/orders`.
 
 ## Rules that prevent losses
 
+- **Every perp position carries a take-profit AND a stop-loss. Both, or
+  no entry.** Decide the two levels before you place anything. Enter with
+  the `bracket` advanced order when you can — entry, TP and SL in one
+  signed call, so no window exists where the position is bare — otherwise
+  attach them in the same turn the entry fills, before you report it:
+  `POST /api/v1/perp/positions/{market}/tpsl {"take_profit_price": "…",
+  "stop_loss_price": "…"}`. The endpoint accepts one side alone; one side
+  alone is not protection, so send both. Then read the position back and
+  confirm `takeProfit` and `stopLoss` are both non-null. Two exemptions,
+  and only these: an order that reduces or closes an existing position,
+  and a side already covered by a live bracket/OCO leg — that one answers
+  `POS_TPSL_EXISTS` (14005) and is already protected, so leave it alone
+  rather than firing `replace: true` at it. If the user will not name a
+  stop, do not place the entry; tell them the level you would have used
+  and let them decide. Prediction positions have no equivalent engine —
+  say so plainly instead of implying an exit is attached.
 - **Omitting `leverage` on a perp order gives the market's MAXIMUM
   leverage, not 1x.** Set it explicitly on every order.
 - **Off-session markets cap new risk at 2x leverage and $1,000
