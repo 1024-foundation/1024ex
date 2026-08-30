@@ -221,7 +221,17 @@ is the only thing that interprets the author's params, and its `skipped` /
 
 **Size is always the user's, never the author's.** `plan` takes
 `budgetUsd` (or `perLegMarginUsd`) plus `leverage` — published alpha says
-what and how, never how much.
+what and how, never how much. `leverage` is required only for perp legs;
+prediction and **options** legs are fully paid, so their size is just the
+money committed.
+
+**Legs come in three tradable kinds:** `perp` (stance in the leg id),
+`pm_market` (an outcome), and `options` (one contract, e.g.
+`AAOI-20260904-102-C`, buy-only — a bearish option view is a bought put).
+Option contracts are found with the public
+`GET /api/v1/options/chain?underlying=AAOI-USDC`; never assemble a symbol
+by hand. If a whole options chain plans empty with `no_reference_price`,
+the US session is closed — the mark is stale, not missing.
 
 Publishing runs the other way and is just as short: one signed
 `POST /alpha/lists` writes every leg and its params in a single atomic
@@ -249,7 +259,10 @@ field.** Send both texts on every publish:
 `exit.tpPct`/`tpPrice` **and** `exit.slPct`/`slPrice`, each market-mode
 prediction leg `guardTpC` **and** `guardSlC` — half an exit, or a bare
 leg sitting in an armed basket, is what a follower's client turns into a
-trade with nothing closing it. The web app's publish path enforces this
+trade with nothing closing it. Option legs are exempt and cannot comply:
+the venue has no options exit channel, so an `exit` on one is dropped, not
+honoured — say in `descriptionMd` that the premium is the loss cap and the
+contract expires on its own, rather than implying a stop exists. The web app's publish path enforces this
 with a 400; `POST /alpha/lists` does not check at all — which makes it a
 rule you hold, not a rule that lapses because the server stayed quiet. A
 leg you cannot arm does not go into an armed list: drop the leg, or
