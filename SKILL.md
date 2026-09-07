@@ -333,8 +333,15 @@ order really out of `/orders`.
   stop, do not place the entry; tell them the level you would have used
   and let them decide. Prediction positions have no equivalent engine —
   say so plainly instead of implying an exit is attached.
-- **Omitting `leverage` on a perp order gives the market's MAXIMUM
-  leverage, not 1x.** Set it explicitly on every order.
+- **Omitting `leverage` on a perp order uses your per-market preference,
+  else 20x** (clamped to the market max; before 2026-08-29 it meant the
+  market MAXIMUM). Set it explicitly on every order anyway — the response
+  echoes the value applied.
+- **`price`/`size` are JSON strings, and the TPSL / batch-cancel / leverage
+  bodies are snake_case** (`take_profit_price`, `order_ids`,
+  `position_side`). A camelCase key there is silently ignored and the call
+  still returns 200 — TPSL comes back `takeProfit: null`, batch cancel
+  `cancelledCount: 0`. Read the position / count back after each call.
 - **Off-session markets cap new risk at 2x leverage and $1,000
   notional** — armed when a market's price is on the fallback feed or its
   content has gone stale (equity perps outside their session). Over
@@ -376,6 +383,7 @@ https://www.1024ex.com/llms-full.txt · index: https://www.1024ex.com/llms.txt
 - 00-quickstart/onboard-headless — POST /oauth/onboard — one wallet signature creates user, account, and API key in a single call.
 - 00-quickstart/sign-requests — HMAC-SHA256 request signing — the three headers every authenticated call must carry.
 - 10-discover/funding-and-prices — Funding rate current/list/history, mark & index price, open interest, insurance fund. Public.
+- 10-discover/options-chain — Options discovery — catalog, contract detail, expiries, the priced chain with Greeks, book and tape. Public, no auth. Every number is an e6 integer, and every "not found" answers empty instead of 404.
 - 10-discover/perp-markets — Perp market discovery — list, detail, ticker, orderbook, trades, klines. Public, no auth.
 - 10-discover/prediction-collections — Event groupings — one tournament or series is a collection of related binary/multi-outcome markets.
 - 10-discover/prediction-discovery — Find markets from a keyword — unified search (perps + collections + markets) plus the filtered PM list, shelves, categories and tags.
@@ -385,17 +393,19 @@ https://www.1024ex.com/llms-full.txt · index: https://www.1024ex.com/llms.txt
 - 15-alpha/alpha-publish — Publish alpha you mined yourself — action lists anyone can execute and position-backed tickets anyone can verify, plus the three texts that carry the argument (one-line summary, markdown thesis, generation report) and editing, unpublishing and deleting. One signed call, whatever found the opportunity.
 - 15-alpha/alpha-search — Find a mined opportunity worth taking — one keyword across published action lists, position-backed tickets and the server signal feed. Start here when the user asks what is worth trading right now. Public, no key.
 - 20-trade/advanced-orders — 11 perp algo order types — conditional, twap, vwap, scale, oco, bracket, iceberg, pegged, pov, trailing-stop, sniper.
-- 20-trade/close-position — Close a perp position full or partial. The price param is accepted but never applied — always a market close.
+- 20-trade/close-position — Close a perp position full or partial. Market by default; type=limit is an IOC at your price — no_fill leaves the position untouched and rests nothing.
 - 20-trade/leverage-and-margin — Read/set per-market leverage and add/remove position margin. Request bodies are snake_case here.
 - 20-trade/manage-orders — List, fetch, cancel perp orders — single, batch of 50, or cancel-all. DELETEs carry JSON bodies.
 - 20-trade/mint-redeem-claim — USDC to complete-set mint, redeem, claim winnings/refunds, settlement sweep — binary and multi-outcome.
-- 20-trade/place-perp-order — POST a perp order, limit or market. camelCase body. Leverage defaults to market MAX, not 1x.
+- 20-trade/options-orders — Place, list and cancel options orders. e6 integers not decimal strings, `orderType` not `type`, `clientOrderId` mandatory, cancel is a POST — almost nothing carries over from the perp order path.
+- 20-trade/place-perp-order — POST a perp order, limit or market. camelCase body; price/size are strings. Omitted leverage = your per-market preference, else 20x — no longer the market max.
 - 20-trade/prediction-orders — Place and cancel PM orders — binary vs multi-outcome routes, numeric-TIF wire quirk, unified DELETE cancels.
 - 20-trade/tpsl — Attach, modify, cancel market-priced take-profit / stop-loss on a perp position. snake_case body.
 - 30-portfolio/account-overview — Equity, cash, locks, margin ratios and risk level in one call — plus perp margin, 30d stats, token holdings.
 - 30-portfolio/balances — Token balances — available vs locked per token, USDC-valued, all tokens or one symbol.
 - 30-portfolio/history — Every look-back surface — perp orders and trades, funding, liquidations, ADL, position history v2, activity.
 - 30-portfolio/my-prediction-data — Your PM orders, positions, trades, stats and match/activity feeds — integer shares vs sharesE6 units.
+- 30-portfolio/options-positions — Open options positions, manual American exercise, and the exercise/settlement ledger. Exercise is irreversible, idempotency-keyed, and gated on price freshness.
 - 30-portfolio/pnl — Perp PnL summary — realized, live unrealized, funding and fees, netted overall and per market.
 - 30-portfolio/positions — Open perp positions — all or per market — entry/mark/liq prices, uPnL, margin, ADL rank.
 - 40-treasury/deposit — Fund the account — discover bridge routes, prepare a stake tx, broadcast from YOUR wallet, poll until credited.
