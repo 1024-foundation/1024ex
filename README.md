@@ -47,6 +47,10 @@ trade on https://testnet.1024ex.com.
   contract, market conventions, guardrails
 - [scripts/api.py](scripts/api.py) — stdlib-only signed HTTP client
   (`status`, `connect`, `disconnect`, `deposit`, and signed `GET`/`POST`)
+- [scripts/plan.py](scripts/plan.py) — order preview: a basket of perp
+  entries, each with its take-profit and stop-loss, validated and priced
+  against the live market, drawn as one local page (max profit, max loss,
+  margin, the exact requests) with the one button that sends it
 - [scripts/qr.py](scripts/qr.py) — vendored QR encoder (MIT, stdlib only) so
   a deposit address can be drawn in the chat
 
