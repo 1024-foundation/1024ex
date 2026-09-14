@@ -317,80 +317,86 @@ not a dollar size. Sending perp-style `{"side":"buy","size":…}` fails with
 numeric `marketId`. Anything beyond this table (funding, TP/SL, advanced
 orders, treasury) → Canonical docs below.
 
-## Trade a basket, not a bet — and preview it before anything is sent
+## Suggest the basket and the exits — never impose them
 
-One name, one direction is the trade that noise takes out. When the user
-wants to open perp exposure, shape it as a **basket** and show it on the
-preview page before a single request leaves the machine. Do the shaping
-yourself and state your choices — the user changes numbers, not structure.
-If they insist on one leg, place one leg, bracketed. Prediction markets are
-not part of a plan; place them as before.
+The order is the user's. When they ask to open perp exposure, answer with
+the plan for exactly what they asked and, in the same message, offer the
+two things that make it survivable — as one question with the numbers
+already filled in, never as a menu, never done silently:
 
-1. **Two to four markets that share the thesis.** The name(s) the user
-   gave plus the peers the same driver moves — sector peers for an equity
-   (`NVDA` → `AMD`, `AVGO`, `SMH`), the majors for crypto (`BTC` → `ETH`,
-   `SOL`). Check each on `GET /api/v1/perp/markets/{m}` (`active`,
-   `maxLeverage`, `sessionDegraded`) and price it off `/ticker`. Size for
-   **equal loss at the stop**, not equal notional: a leg risks
-   `|entry − stop| × size`, and every leg should risk about the same USDC.
-2. **A take-profit and a stop-loss on every leg.** The bracket order
-   carries entry, TP and SL in one call, so the position is never bare.
-   Put the stop beyond the recent range (`high24h`/`low24h` on the ticker,
-   or a few 1h klines) and the target at least 1.5× the stop distance
-   away. `plan.py` refuses a leg without both.
-3. **Write the plan, show the page, let the click send it.** One JSON
-   file, every number a decimal string:
+- **Exits.** Propose one stop and one target: the stop beyond the recent
+  range (`high24h`/`low24h` on the ticker, or a few 1h klines), the target
+  at least 1.5× the stop distance away, each with its USDC outcome. Ask
+  whether those levels work. Every perp entry carries both (Rules below);
+  what the user decides is *where*, not *whether* — and if they want no
+  stop at all, do not place the entry: say the level you would have used
+  and leave it there.
+- **Company.** Name one to three markets the same driver moves — sector
+  peers for an equity (`NVDA` → `AMD`, `AVGO`, `SMH`), the majors for
+  crypto (`BTC` → `ETH`, `SOL`) — each sized to risk about the same USDC
+  at its stop as the leg they asked for (`|entry − stop| × size`), and ask
+  whether to add any. A "no" is final: one leg, bracketed.
 
-   ```json
-   {"title": "Long semis",
-    "thesis": "AI capex intact; NVDA and AMD long into earnings, stops under last week's lows",
-    "legs": [
-      {"market": "NVDA-USDC", "side": "buy", "size": "10", "leverage": 3,
-       "entry": "market", "takeProfit": "235", "stopLoss": "200"},
-      {"market": "AMD-USDC", "side": "buy", "size": "4", "leverage": 3,
-       "entry": "limit", "price": "490", "takeProfit": "540", "stopLoss": "465"}
-    ]}
-   ```
+One message, one question, concrete numbers: *"Buy 10 NVDA at market —
+stop 200 (−123), target 235 (+228). Do those levels work, and do you want
+AMD and AVGO alongside at the same risk, about 120 each?"* Then build the
+plan from their answer and show it. Never widen it on your own, and never
+re-ask once they have answered. Prediction markets are not part of a plan;
+place them as before.
 
-   ```bash
-   python3 scripts/plan.py preview plan.json            # validates, prices, prints the summary, opens the page, waits for the click
-   python3 scripts/plan.py preview plan.json --no-serve # summary + page file only; nothing can be sent
-   ```
+**Write the plan, show the page, let the click send it.** One JSON file,
+every number a decimal string:
 
-   `preview` checks every leg against the live market (step, tick, price
-   band, leverage, session, TP/SL on the right side of entry), computes
-   **max profit** (every leg at its take-profit) and **max loss** (every
-   stop fills at its level — a gap through a stop can cost up to the
-   margin posted, and the page says so), prints that summary, and serves
-   the page on `127.0.0.1` with a Place button that sends one bracket
-   order per leg, in plan order.
-   - **Relay the printed summary** — the `MAX PROFIT / MAX LOSS / MARGIN`
-     line, each leg, the warnings — **and the preview link on its own
-     line.** The script already opened it in the user's browser; a
-     browser tool of your own may open it too (it is local to this
-     machine). Do not ask for a second confirmation in the chat: the
-     click is the confirmation.
-   - **The command blocks until Place, Cancel or the timeout** (`--wait`,
-     default 300 s) — longer than many hosts allow a tool call (Claude
-     Code: 2 minutes). Give it your longest timeout (Claude Code: Bash
-     `timeout: 600000`), or run it in the background and read its output.
-   - **Read the exit code, then report what it printed under "Account
-     now"** — the positions and resting brackets the exchange holds, leg
-     by leg, which is the only thing that counts. 0 = every leg accepted
-     · 6 = some leg refused (say which, from the list) · 5 = cancelled on
-     the page, nothing sent · 4 = no click in time, nothing sent — offer
-     to show it again · 2 = plan invalid, the reasons are printed: fix the
-     file and re-run · 3 = not connected, the page showed with its button
-     off.
-   - Warnings come from the live market and are not blockers, but the
-     user should hear them: degraded-session caps, uneven risk across
-     legs, a stop beyond the bankruptcy price.
-   - `plan.py execute plan.json` sends without the page. Only when no
-     browser can be opened at all, and only after the user confirmed the
-     same printed summary in the chat.
-   - The `clientOrderId`s derive from the file's content and the UTC
-     date, so re-running the same file the same day retries rather than
-     doubles; edit the file for a genuinely new plan.
+```json
+{"title": "Long semis",
+ "thesis": "AI capex intact; NVDA and AMD long into earnings, stops under last week's lows",
+ "legs": [
+   {"market": "NVDA-USDC", "side": "buy", "size": "10", "leverage": 3,
+    "entry": "market", "takeProfit": "235", "stopLoss": "200"},
+   {"market": "AMD-USDC", "side": "buy", "size": "4", "leverage": 3,
+    "entry": "limit", "price": "490", "takeProfit": "540", "stopLoss": "465"}
+ ]}
+```
+
+```bash
+python3 scripts/plan.py preview plan.json            # validates, prices, prints the summary, opens the page, waits for the click
+python3 scripts/plan.py preview plan.json --no-serve # summary + page file only; nothing can be sent
+```
+
+`preview` checks every leg against the live market (step, tick, price
+band, leverage, session, TP/SL on the right side of entry), computes
+**max profit** (every leg at its take-profit) and **max loss** (every
+stop fills at its level — a gap through a stop can cost up to the
+margin posted, and the page says so), prints that summary, and serves
+the page on `127.0.0.1` with a Place button that sends one bracket
+order per leg, in plan order.
+- **Relay the printed summary** — the `MAX PROFIT / MAX LOSS / MARGIN`
+  line, each leg, the warnings — **and the preview link on its own
+  line.** The script already opened it in the user's browser; a
+  browser tool of your own may open it too (it is local to this
+  machine). Do not ask for a second confirmation in the chat: the
+  click is the confirmation.
+- **The command blocks until Place, Cancel or the timeout** (`--wait`,
+  default 300 s) — longer than many hosts allow a tool call (Claude
+  Code: 2 minutes). Give it your longest timeout (Claude Code: Bash
+  `timeout: 600000`), or run it in the background and read its output.
+- **Read the exit code, then report what it printed under "Account
+  now"** — the positions and resting brackets the exchange holds, leg
+  by leg, which is the only thing that counts. 0 = every leg accepted
+  · 6 = some leg refused (say which, from the list) · 5 = cancelled on
+  the page, nothing sent · 4 = no click in time, nothing sent — offer
+  to show it again · 2 = plan invalid, the reasons are printed: fix the
+  file and re-run · 3 = not connected, the page showed with its button
+  off.
+- Warnings come from the live market and are not blockers, but the
+  user should hear them: degraded-session caps, uneven risk across
+  legs, a stop beyond the bankruptcy price.
+- `plan.py execute plan.json` sends without the page. Only when no
+  browser can be opened at all, and only after the user confirmed the
+  same printed summary in the chat.
+- The `clientOrderId`s derive from the file's content and the UTC
+  date, so re-running the same file the same day retries rather than
+  doubles; edit the file for a genuinely new plan.
 
 ## Confirm every order against the account
 

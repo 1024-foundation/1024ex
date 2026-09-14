@@ -308,8 +308,6 @@ def build(base, plan, raw):
     a = model.account
     if a.available is not None and model.capital > a.available:
         model.warnings.append(f"this plan commits {fm(model.capital)} USDC but only {fm(a.available)} is available — the venue will refuse the legs it cannot margin")
-    if len({l.market for l in legs}) == 1:
-        model.warnings.append("one market only — nothing in this plan diversifies it")
     risks = [l.risk for l in legs]
     if len(risks) > 1 and max(risks) > 3 * min(risks):
         model.warnings.append(f"uneven risk: the largest leg risks {fm(max(risks))} at its stop, the smallest {fm(min(risks))} — size for equal loss at the stop, or say why not")
@@ -346,33 +344,45 @@ def commands(m):
 # ─── page ────────────────────────────────────────────────────────────────────
 
 CSS = """
-:root{--bg:#0b0f14;--panel:#111821;--line:#1f2a36;--txt:#dfe7ee;--dim:#8a98a6;--acc:#31e8ff;--up:#3ddc84;--dn:#ff5c5c;--k:#f6c453}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;padding:24px 16px 96px}
-main{max-width:960px;margin:0 auto}h1{font-size:22px;margin:0 0 4px}.thesis{color:var(--dim);margin:0 0 18px}
-.badge{display:inline-block;border:1px solid var(--line);border-radius:4px;padding:1px 8px;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--acc);margin-left:10px;vertical-align:middle}
-.badge.test{color:var(--k)}.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);margin-bottom:18px}
-.kpi{background:var(--panel);padding:14px 16px}.kpi .l{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}.kpi .v{font-size:22px;font-variant-numeric:tabular-nums;margin-top:4px}
-.kpi .s{font-size:12px;color:var(--dim)}.up{color:var(--up)}.dn{color:var(--dn)}
-.card{background:var(--panel);border:1px solid var(--line);margin-bottom:14px;padding:12px 16px}.card h2{font-size:13px;margin:0 0 8px;color:var(--dim);font-weight:500}
-table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}th{color:var(--dim);font-weight:500;text-align:left;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:4px 8px 6px 0}
-td{padding:5px 8px 5px 0;border-top:1px solid var(--line);white-space:nowrap}.tbl{overflow-x:auto}svg{width:100%;height:auto;display:block}
-ul.warn{margin:0;padding-left:18px;color:var(--k)}ul.warn li{margin:3px 0}details{margin-bottom:14px}summary{cursor:pointer;color:var(--dim);font-size:13px}
-pre{background:#070a0e;border:1px solid var(--line);padding:10px 12px;font-size:12px;overflow-x:auto;white-space:pre}
-.bar{position:fixed;left:0;right:0;bottom:0;background:#0e141bf2;border-top:1px solid var(--line);padding:12px 16px;backdrop-filter:blur(6px)}
-.bar .in{max-width:960px;margin:0 auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap}button{font:inherit;border:1px solid var(--line);background:#182230;color:var(--txt);padding:10px 16px;border-radius:4px;cursor:pointer}
-button.go{background:var(--acc);color:#04141a;border-color:var(--acc);font-weight:600}button:disabled{opacity:.45;cursor:default}.st{color:var(--dim);font-size:13px;flex:1;min-width:200px}
-.prog td:first-child{width:22px}.ok{color:var(--up)}.bad{color:var(--dn)}.small{font-size:12px;color:var(--dim)}
-@media(max-width:600px){body{padding:16px 16px 120px}.kpis{grid-template-columns:1fr}.kpi .v{font-size:18px}}
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&display=swap');
+:root{--bg:#101010;--card:#0a0f15;--line:rgba(255,255,255,.09);--txt:#fff;--dim:rgba(255,255,255,.52);--faint:rgba(255,255,255,.4);--mint:#50d2c1;--cyan:#31e8ff;--violet:#aa8cff;--gold:#f6c76b;--up:#a9f2c4;--dn:#ff8a8a}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 "Hanken Grotesk",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;padding:30px 20px 120px}
+main{max-width:920px;margin:0 auto}.eyebrow{font-size:10px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--mint)}
+h1{font-size:30px;line-height:1.05;font-weight:600;letter-spacing:-.04em;margin:8px 0 6px}.thesis{color:var(--dim);font-size:14px;line-height:1.55;margin:0 0 20px;max-width:720px}
+.card{position:relative;overflow:hidden;background:var(--card);border:1px solid var(--line);border-radius:24px;padding:20px 22px 22px;margin-bottom:12px}
+.card::before{content:"";position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(90deg,transparent,var(--c,var(--mint)) 35%,transparent)}
+.card::after{content:"";position:absolute;top:-80px;right:-60px;width:180px;height:180px;border-radius:50%;background:var(--c,var(--mint));opacity:.07;filter:blur(48px);pointer-events:none}
+.lbl{display:block;font-size:10px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--c,var(--mint));margin-bottom:14px}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}.kpi .l{font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.kpi .v{font-size:28px;line-height:1.1;font-weight:600;letter-spacing:-.03em;font-variant-numeric:tabular-nums;margin-top:6px}.kpi .s{font-size:12px;line-height:1.45;color:var(--faint);margin-top:5px}
+table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}th{font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);text-align:left;padding:0 12px 10px 0}
+td{padding:9px 12px 9px 0;border-top:1px solid var(--line);white-space:nowrap}.tbl{overflow-x:auto}svg{width:100%;height:auto;display:block}
+.warn{list-style:none;margin:0;padding:0}.warn li{display:flex;gap:10px;align-items:flex-start;font-size:12px;line-height:1.5;color:var(--dim);margin:6px 0}
+.warn li::before{content:"!";flex:none;width:16px;height:16px;margin-top:1px;border-radius:50%;background:rgba(246,199,107,.16);color:var(--gold);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
+details{margin:4px 0 12px}summary{cursor:pointer;color:var(--faint);font-size:12px}pre{background:#070a0e;border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin:10px 0 0;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim);overflow-x:auto;white-space:pre}
+.note{font-size:12px;line-height:1.5;color:var(--faint)}
+.bar{position:fixed;left:0;right:0;bottom:0;background:rgba(16,16,16,.86);backdrop-filter:blur(14px);border-top:1px solid var(--line);padding:14px 20px}
+.bar .in{max-width:920px;margin:0 auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button{font:inherit;font-weight:600;font-size:14px;min-height:46px;padding:0 24px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:transform .15s,background .15s,border-color .15s}
+button.go{background:var(--mint);color:#031311;border:0;box-shadow:0 0 34px rgba(80,210,193,.16)}button.go:hover:not(:disabled){background:#67e1d1;transform:translateY(-1px)}
+button.alt{background:rgba(255,255,255,.035);color:#fff;border:1px solid rgba(255,255,255,.14)}button.alt:hover:not(:disabled){border-color:rgba(255,255,255,.25);background:rgba(255,255,255,.07)}
+button:disabled{opacity:.4;cursor:default;transform:none}.st{color:var(--dim);font-size:13px;flex:1;min-width:220px}
+.prog{list-style:none;margin:0;padding:0}.prog li{display:flex;align-items:center;gap:10px;font-size:13px;padding:9px 0;border-top:1px solid var(--line)}.prog li:first-child{border-top:0;padding-top:0}
+.ic{flex:none;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;background:rgba(255,255,255,.06);color:var(--faint)}
+.ok .ic{background:rgba(80,210,193,.16);color:var(--mint)}.bad .ic{background:rgba(255,138,138,.16);color:var(--dn)}.prog .d{margin-left:auto;font-size:12px;color:var(--faint);white-space:nowrap}
+.up{color:var(--up)}.dn{color:var(--dn)}.small{font-size:12px;color:var(--faint)}
+@media(max-width:700px){.kpi .v{font-size:24px}}@media(max-width:640px){body{padding:20px 16px 160px}h1{font-size:26px}.card{padding:18px;border-radius:20px}}@media(max-width:520px){.kpis{grid-template-columns:1fr;gap:14px}}
 """
 
 JS = """
 const T=document.body.dataset.token;const $=s=>document.querySelector(s);
 const go=$('#go'),cancel=$('#cancel'),st=$('#st'),prog=$('#prog'),rb=$('#readback');
 async function post(p){try{const r=await fetch('/'+T+'/'+p,{method:'POST',headers:{'X-1024-Plan':T,'Content-Type':'application/json'},body:'{}'});return r.ok}catch(e){return false}}
-function cls(s){return s==='accepted'?'ok':s==='pending'||s==='sending'?'':'bad'}
+const cls=s=>s==='accepted'?'ok':s==='pending'||s==='sending'?'pend':'bad';
+const ic=s=>s==='accepted'?'✓':s==='pending'?'·':s==='sending'?'…':'✕';
 function render(s){
   if(s.phase==='running'||s.phase==='done'){prog.hidden=false;
-    prog.querySelector('tbody').innerHTML=s.legs.map(l=>`<tr><td class="${cls(l.status)}">${l.status==='accepted'?'✓':l.status==='pending'?'·':l.status==='sending'?'…':'✕'}</td><td>${l.label}</td><td class="${cls(l.status)}">${l.status}</td><td class="small">${l.detail||''}</td></tr>`).join('')}
+    prog.querySelector('ul').innerHTML=s.legs.map(l=>`<li class="${cls(l.status)}"><span class="ic">${ic(l.status)}</span><span>${l.label}</span><span class="d">${l.detail||l.status}</span></li>`).join('')}
   if(s.phase==='done'){st.textContent=s.summary||'Done.';if(s.readback){rb.hidden=false;rb.querySelector('pre').textContent=s.readback}go.textContent='Sent';go.disabled=true;cancel.hidden=true}
   else if(s.phase==='running'){st.textContent='Sending…'}
   else if(s.phase==='cancelled'){st.textContent='Cancelled — nothing was sent. You can close this tab.';go.disabled=true;cancel.disabled=true}
@@ -400,61 +410,54 @@ def svg_chart(m):
     inner = [x for x, _ in pts[1:-1]]
     parts = [f'<svg viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="basket payoff">']
     zero = sy(0)
-    parts.append(f'<line x1="{ml}" y1="{zero:.1f}" x2="{w - mr}" y2="{zero:.1f}" stroke="#2a3745" stroke-width="1"/>')
-    parts.append(f'<text x="{ml - 6}" y="{sy(m.best) + 4:.1f}" font-size="10" fill="#3ddc84" text-anchor="end">{e(fm(m.best, True))}</text>')
-    parts.append(f'<text x="{ml - 6}" y="{sy(m.worst) + 4:.1f}" font-size="10" fill="#ff5c5c" text-anchor="end">{e(fm(m.worst, True))}</text>')
-    parts.append(f'<text x="{ml - 6}" y="{zero + 4:.1f}" font-size="10" fill="#8a98a6" text-anchor="end">0</text>')
-    for x, label, color in ((min(inner), "all stops", "#ff5c5c"), (0.0, "now", "#31e8ff"), (max(inner), "all targets", "#3ddc84")):
+    parts.append(f'<line x1="{ml}" y1="{zero:.1f}" x2="{w - mr}" y2="{zero:.1f}" stroke="rgba(255,255,255,.12)" stroke-width="1"/>')
+    parts.append(f'<text x="{ml - 6}" y="{sy(m.best) + 4:.1f}" font-size="10" fill="#a9f2c4" text-anchor="end">{e(fm(m.best, True))}</text>')
+    parts.append(f'<text x="{ml - 6}" y="{sy(m.worst) + 4:.1f}" font-size="10" fill="#ff8a8a" text-anchor="end">{e(fm(m.worst, True))}</text>')
+    parts.append(f'<text x="{ml - 6}" y="{zero + 4:.1f}" font-size="10" fill="rgba(255,255,255,.4)" text-anchor="end">0</text>')
+    for x, label, color in ((min(inner), "all stops", "#ff8a8a"), (0.0, "now", "#31e8ff"), (max(inner), "all targets", "#a9f2c4")):
         parts.append(f'<line x1="{sx(x):.1f}" y1="{mt}" x2="{sx(x):.1f}" y2="{h - mb}" stroke="{color}" stroke-width="1" stroke-dasharray="3 3" opacity=".7"/>')
         parts.append(f'<text x="{sx(x):.1f}" y="{mt - 6}" font-size="10" fill="{color}" text-anchor="middle">{e(label)} {x:+.1%}</text>')
-    parts.append(f'<polyline points="{" ".join(f"{sx(x):.1f},{sy(v):.1f}" for x, v in pts)}" fill="none" stroke="#dfe7ee" stroke-width="2"/>')
-    parts.append(f'<text x="{(ml + w - mr) / 2:.0f}" y="{h - 8}" font-size="10" fill="#8a98a6" text-anchor="middle">basket PnL when every market moves together → each leg exits at its own stop or target</text>')
+    parts.append(f'<polyline points="{" ".join(f"{sx(x):.1f},{sy(v):.1f}" for x, v in pts)}" fill="none" stroke="#50d2c1" stroke-width="2.2" stroke-linejoin="round"/>')
+    parts.append(f'<text x="{(ml + w - mr) / 2:.0f}" y="{h - 8}" font-size="10" fill="rgba(255,255,255,.4)" text-anchor="middle">basket PnL when every market moves together — each leg exits at its own stop or target</text>')
     parts.append("</svg>")
     return "".join(parts)
-
-
-def pnl_cls(v):
-    return "up" if v > 0 else "dn" if v < 0 else ""
 
 
 def render_page(m, token):
     e = html.escape
     a = m.account
-    net_badge = f'<span class="badge{" test" if m.net == "testnet" else ""}">{e(m.net)}</span>'
+    n = len(m.legs)
     pct = f" · {m.capital / a.available:.0%} of {fm(a.available)} available" if a.available else ""
-    acct = e(f"{a.id}") if a.id else e(a.problem or "")
-    kpis = f"""
-<section class="kpis">
- <div class="kpi"><div class="l">Max profit</div><div class="v up">{e(fm(m.best, True))}</div><div class="s">every leg at its take-profit</div></div>
- <div class="kpi"><div class="l">Max loss</div><div class="v dn">{e(fm(m.worst, True))}</div><div class="s">every stop fills at its level</div></div>
- <div class="kpi"><div class="l">Margin posted</div><div class="v">{e(fm(m.capital))}</div><div class="s">the most a gap through every stop can cost{e(pct)}</div></div>
-</section>"""
+    acct = e(a.id) if a.id else e(a.problem or "")
     rows = []
     for l in m.legs:
         entry = "market" if l.entry == "market" else f"limit {fp(l.price)}"
         rows.append(f"<tr><td>{e(l.side)}</td><td>{e(fp(l.size))}</td><td>{e(l.market)}</td><td>{l.leverage}x</td><td>{e(entry)} <span class='small'>({e(fp(l.ref))})</span></td>"
                     f"<td class='up'>{e(fp(l.tp))} <span class='small'>{e(fm(l.gain, True))}</span></td><td class='dn'>{e(fp(l.sl))} <span class='small'>{e(fm(-min(l.risk, l.margin), True))}</span></td><td>{e(fm(l.margin))}</td></tr>")
-    table = f"""<section class="card"><div class="tbl"><table><thead><tr><th>Side</th><th>Size</th><th>Market</th><th>Lev</th><th>Entry</th><th>Take-profit</th><th>Stop-loss</th><th>Margin</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div></section>"""
-    chart = f'<section class="card">{svg_chart(m)}</section>'
-    warn = ("<section class='card'><ul class='warn'>" + "".join(f"<li>{e(w)}</li>" for w in m.warnings) + "</ul></section>") if m.warnings else ""
-    n = len(m.legs)
+    warn = ("<section class='card' style='--c:#f6c76b'><span class='lbl'>Heads up</span><ul class='warn'>" + "".join(f"<li>{e(w)}</li>" for w in m.warnings) + "</ul></section>") if m.warnings else ""
     can = a.key and a.secret and not a.problem
-    go = f'<button id="go" class="go"{"" if can else " disabled"}>Place {n} order{"s" if n != 1 else ""} on {e(m.net)}</button>'
+    go = f'<button id="go" class="go"{"" if can else " disabled"}>Place {n} order{"s" if n != 1 else ""} on {e(m.net)} <span>→</span></button>'
     hint = "Clicking sends the requests below, in that order, with the key connected to this agent." if can else f"Not connected ({e(a.problem or '')}) — connect in the chat first, then ask for the preview again."
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{e(m.title)} · 1024 order preview</title><style>{CSS}</style></head>
 <body data-token="{e(token)}"><main>
-<h1>{e(m.title)}{net_badge}</h1>
-<p class="thesis">{e(m.thesis) if m.thesis else ''}<span class="small">{' · ' if m.thesis else ''}{acct}</span></p>
-{kpis}
-{table}
-{chart}
+<div class="eyebrow">Order preview · {e(m.net)}</div>
+<h1>{e(m.title)}</h1>
+<p class="thesis">{e(m.thesis) if m.thesis else ''}{'<br>' if m.thesis else ''}<span class="small">{acct}</span></p>
+<section class="card" style="--c:#50d2c1"><span class="lbl">01 / Basket</span><div class="kpis">
+ <div class="kpi"><div class="l">Max profit</div><div class="v up">{e(fm(m.best, True))}</div><div class="s">every leg at its take-profit</div></div>
+ <div class="kpi"><div class="l">Max loss</div><div class="v dn">{e(fm(m.worst, True))}</div><div class="s">every stop fills at its level</div></div>
+ <div class="kpi"><div class="l">Margin posted</div><div class="v">{e(fm(m.capital))}</div><div class="s">the most a gap through every stop can cost{e(pct)}</div></div>
+</div></section>
+<section class="card" style="--c:#31e8ff"><span class="lbl">02 / Legs — {n} bracket order{'s' if n != 1 else ''}, entry + take-profit + stop-loss each</span>
+<div class="tbl"><table><thead><tr><th>Side</th><th>Size</th><th>Market</th><th>Lev</th><th>Entry</th><th>Take-profit</th><th>Stop-loss</th><th>Margin</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div></section>
+<section class="card" style="--c:#aa8cff"><span class="lbl">03 / Payoff</span>{svg_chart(m)}</section>
 {warn}
-<details><summary>What the button sends — {n} bracket order{'s' if n != 1 else ''}, entry + take-profit + stop-loss each</summary><pre>{e(chr(10).join(commands(m)))}</pre></details>
-<p class="small">USDC, before fees and funding. Stops are market-triggered: a gap through a stop fills where the market is, not at the stop, up to the margin posted. Accepted ≠ filled: a limit entry rests until it trades; its exits arm on the fill.</p>
-<section id="prog" class="card" hidden><h2>Sending</h2><table class="prog"><tbody></tbody></table></section>
-<section id="readback" class="card" hidden><h2>Account now</h2><pre></pre></section>
+<details><summary>What the button sends</summary><pre>{e(chr(10).join(commands(m)))}</pre></details>
+<p class="note">USDC, before fees and funding. Stops are market-triggered: a gap through a stop fills where the market is, not at the stop, up to the margin posted. Accepted ≠ filled: a limit entry rests until it trades; its exits arm on the fill.</p>
+<section id="prog" class="card" style="--c:#50d2c1" hidden><span class="lbl">Sending</span><ul class="prog"></ul></section>
+<section id="readback" class="card" style="--c:#31e8ff" hidden><span class="lbl">Account now</span><pre style="margin:0">{''}</pre></section>
 </main>
-<div class="bar"><div class="in">{go}<button id="cancel">Cancel</button><span id="st" class="st">{hint}</span></div></div>
+<div class="bar"><div class="in">{go}<button id="cancel" class="alt">Cancel</button><span id="st" class="st">{hint}</span></div></div>
 <script>{JS}</script></body></html>"""
 
 
