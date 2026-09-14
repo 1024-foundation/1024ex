@@ -1,14 +1,17 @@
 ---
 name: 1024ex
-description: Trade on 1024 Exchange via its public HTTP API — perpetuals, prediction markets, and alpha (trading opportunities mined by AI and data, published so anyone can execute them in two calls). Onboarding, HMAC-signed orders, positions, balances, treasury and withdrawals. Use when the user asks to trade, quote, monitor, or automate anything on 1024 / 1024ex.com; when they ask what is worth trading, want to act on someone's published alpha or action list, or want to publish their own; or when they want to connect or log in to their 1024 account.
+metadata:
+  version: 2026.09.14.4
+  updated: 2026-09-14
+description: Trade on 1024 Exchange via its public HTTP API — perpetuals and prediction markets. Onboarding, HMAC-signed orders, positions, balances and treasury. Use when the user asks to trade, quote, monitor, or automate anything on 1024 / 1024ex.com, or when they want to connect or log in to their 1024 account.
 ---
 
 # 1024 Exchange trading
 
 You are operating a real exchange account. Every authenticated call moves or
-risks real funds. Before placing, cancelling-all, transferring, or
-withdrawing, restate what you are about to do (market, side, size, price,
-amount) and get the user's explicit confirmation. Never trade unprompted.
+risks real funds. Before placing, cancelling-all or transferring, restate
+what you are about to do (market, side, size, price, amount) and get the
+user's explicit confirmation. Never trade unprompted.
 
 ## Getting connected
 
@@ -16,6 +19,32 @@ Anything authenticated needs credentials: env `API_1024_KEY` +
 `API_1024_SECRET`, else this network's entry in
 `~/.1024ex/credentials.json`. Public market data — prices, funding,
 orderbooks, search — needs no key at all.
+
+**"Am I connected?", "check my login", or anything that needs a key: run
+`status` first.** It mints nothing and answers in a few lines you can
+read out as they are:
+
+```bash
+python3 scripts/api.py status     # exit 0 connected · 3 not connected · 2 key rejected
+```
+
+Paths in this file are relative to the skill's own directory (the one
+this SKILL.md sits in — from a project root that is
+`./.agents/skills/1024ex/`). `status` only reads from the exchange; the
+one thing it writes is a small local cache for the version check.
+
+Connected: account, key label, permissions, since when and from which
+credential file, last use, balance, and the links the user can open
+themselves (next section). The `1024_…` prefix it prints is the key's
+public identifier — the same mask the web shows on /connect so the user
+can match the row — never the secret. Not connected: it says
+so — and if a link is already waiting for approval it repeats **that**
+link with its remaining minutes instead of letting you mint a new one.
+Rejected (exit 2): the key was revoked or rotated, most likely by the
+user on the web — say that plainly and offer to reconnect. Web login and
+this connection are separate things: the user can be signed in to
+1024ex.com while you are not connected, and vice versa; when they ask
+"am I logged in", answer about this connection and hand them the link.
 
 Nothing on hand? Say so and offer to connect, in one line, rather than
 letting the user discover it through a 401. But **offer — do not run
@@ -32,17 +61,62 @@ for:
 python3 scripts/api.py connect --label="Claude Code"
 ```
 
+- **`--label` is the name the user will see on 1024's Connected AIs
+  page** — pass your own product name (`"Claude Code"`, `"Cursor"`,
+  `"Codex"`). Omitted, the script guesses from the environment.
 - **Say "open the link and approve" — never promise a wallet signature.**
   Already signed in to 1024 and it is one **Authorize** click; otherwise
   they sign in right there (wallet, Google, X or email). Surface the link
   prominently and let the page speak for itself.
 - The command polls until approved, then writes key + secret to disk. The
   secret never passes through the chat — never ask for it, never print it.
+- `connect` is idempotent: already connected → it says so and mints
+  nothing. `--force` mints a second key; `disconnect` revokes this one
+  and forgets it locally.
 - "still pending" (exit 4): re-run it — same session, same link, valid
   ~15 min. A 429 on create is IP rate limiting: wait a minute.
 - The key carries read + trade. Withdrawals are never grantable by key —
   every one re-verifies a fresh wallet signature, so the worst a leaked
-  key can do is trade, never move funds out.
+  key can do is trade, never move funds out. Withdrawing is a web action:
+  send the user to https://www.1024ex.com/portfolio.
+
+## Links: hand them over, every time
+
+The user does one thing in this whole flow: open a link. So the link is
+the message, not a detail of it.
+
+- **Every 1024 link on its own line, complete and clickable.** Never
+  "see above", never shortened, never retyped — only what `api.py`
+  printed (the host is only ever `www.1024ex.com` or
+  `testnet.1024ex.com`).
+- **A deposit address is the one thing you relay that is not a 1024
+  link** — a Tron, Bitcoin, EVM or Solana address exactly as
+  `deposit --token` printed it, alone on its own line in the block
+  between its ✂ lines. Copied, never retyped, shortened or "fixed",
+  never from memory or an earlier message. It always travels
+  with its verify link, and that link is on `www.1024ex.com` or
+  `testnet.1024ex.com` — never relay an address without it, or with a
+  link to anywhere else.
+- **One sentence before it says what they do** ("open it, one click on
+  Authorize"); **one sentence after says what you do next** ("I'll wait
+  here and check your balance once it's through").
+- **Asked again while waiting? Repeat the same link** and the minutes it
+  has left. Expired? Give the new one — never send them to scroll back.
+- **Every status, balance or position report ends with the links the
+  user can open themselves**, so they never have to ask you to look:
+  - `https://www.1024ex.com/connect` — signed in there, they see every
+    AI connected to the account and can revoke any, including you
+  - `https://www.1024ex.com/deposit` — funding, minimum 5 USDC
+    (`api.py deposit` makes one addressed to this account; money on an
+    exchange or another chain gets a deposit address right in the chat —
+    both below)
+  - `https://www.1024ex.com/portfolio` — balances, positions, and where
+    they withdraw
+- **Frame the links as their control, not your task**: "this is where you
+  see who is connected and switch any of us off" is the reason they will
+  actually open it.
+- A 401 out of nowhere on a key that used to work means they revoked it
+  on that page. Say so; do not silently reconnect.
 
 Just installed, nothing asked yet? End with a handful of concrete things
 the user could say next — their words, not commands to run — leading with
@@ -50,10 +124,9 @@ what needs no key, so their first impression is not a login wall:
 
 - "What's BTC trading at?" — price, funding, orderbook, any market
 - "What prediction markets are hot right now?"
-- "What alpha is worth trading right now?" — mined opportunities others
-  published; searching them needs no key either
 - "Connect my 1024 account" — required for positions, balances, orders
-- "How do I fund my account?" — deposit link, once connected
+- "How do I fund my account?" — a deposit link, or an address right here
+  in the chat for money on an exchange; once connected
 
 ## Setup
 
@@ -91,20 +164,73 @@ key with `canTrade`. Crediting is async (~30-40s): poll
 `/api/v1/accounts/me/overview` before sizing an order. Details:
 https://www.1024ex.com/skills/raw/00-quickstart/claim-testnet-usdc.md
 
-Empty account? Send the user to https://www.1024ex.com/deposit — the link
-opens the deposit dialog directly (chain picker, wallet connect, card
-on-ramp), prompting login first if needed. Testnet:
-https://testnet.1024ex.com/deposit. There is an API deposit flow too, but it
-only builds an unsigned stake tx that the user's own wallet still has to
-broadcast, so the link is the shorter path for anyone with a browser.
-Minimum is 5 USDC; crediting is async — confirm via
-`GET /api/v1/accounts/me/overview`.
+Empty account? First ask **where the money is now**, then take one path:
 
-Headless alternative (no browser, agent-only environments): one wallet
-signature mints a key — fetch
-https://www.1024ex.com/skills/raw/00-quickstart/onboard-headless.md
-and follow it. The wallet signing step must run where the user's private
-key already lives (their wallet or local env) — never ask for the key.
+- **USDC already in their login wallet on Base, Ethereum or Solana** →
+  the link — cheapest, no conversion:
+
+  ```bash
+  python3 scripts/api.py deposit --amount=100          # prints the link
+  python3 scripts/api.py deposit --amount=100 --wait   # …and waits until it is credited
+  ```
+
+- **On an exchange, or on another chain** (USDT on Tron, BTC, ETH, USDC
+  elsewhere) → a deposit address made for this account, right here in
+  the chat. First ask **what they will send** (if they haven't said),
+  **which network** they will withdraw on — the exchange's withdrawal
+  screen names it; pass their words (`TRC20`, `ERC20`, `BEP20`,
+  `Arbitrum One`…) and 1024 resolves them — and **how much**. The amount
+  is required: 1024 checks it against the minimum before they send. Not
+  sure which network? Suggest a low-fee one their exchange offers
+  (`deposit --routes` lists what works), and always say that Tron has no
+  auto-refund. Then two steps:
+
+  ```bash
+  python3 scripts/api.py deposit --token=USDT --chain=TRC20 --amount=300   # 1. mint: address, QR, facts, verify link
+  python3 scripts/api.py deposit --status=<requestId> --wait              # 2. after relaying, while they send
+  ```
+
+  Relay rules:
+  - Mint **once** — every run makes a new address — and the mint never
+    waits: relay first, then run step 2.
+  - Relay the block between its ✂ lines: the address alone on its own
+    line, the QR in its code fence and the verify link, all copied
+    exactly — never retyped, shortened or reformatted. For a user writing
+    in another language, put the heading and the facts in their
+    language, keeping the token, network and numbers as printed.
+  - Always include the verify link: signed in, the user sees on 1024 that
+    the address is theirs before sending.
+  - Never drop the facts — they are the ways to lose money: only that
+    token on that network, the amount they named (the minimum counts
+    what arrives after conversion), and on Tron no auto-refund.
+  - Step 2 follows the deposit for up to 540 s, requests included —
+    longer than many hosts let a tool call run by default (Claude Code:
+    2 minutes). Give it your longest timeout (Claude Code: Bash
+    `timeout: 600000`), or run it in the background and read its output,
+    or pass `--wait=<seconds>` under your limit. Its first line is the
+    resume command, in case the call is cut off.
+  - The USDC lands in their own wallet first. Step 2 stops right then
+    (exit 4) with a one-tap finish link that moves it into 1024: hand it
+    over at once, then run the `--finish-sent` line it prints to follow
+    the move-in. Other exits: 0 in 1024 · 4 not yet (relay any link it
+    printed, run the line it prints) · 5 refunded, failed or not this
+    account's address · 3 no answer, or switched off (the verify link
+    still shows it).
+  - No address on this deployment (not enabled yet, or switched off)?
+    The output is the web link instead; relay that.
+- **No crypto** → the link: card or bank transfer on the page.
+
+The link opens https://www.1024ex.com/deposit — a standalone page, not a
+dialog: the user signs in there if needed and lands straight back on it.
+It names you ("Requested by Claude Code"), prefills the amount, and
+carries the tail of this account's wallet, so a user signed in to a
+different account is warned before paying into one you cannot see. By
+hand it is `/deposit?amount=100&chain=base&from=<your name>&to=<last 6
+characters of the wallet>`, every parameter optional. Minimum is 5 USDC by
+link; an address prints its own minimum. Crediting is async — use
+`--wait`, or re-check `GET /api/v1/accounts/me/overview`. Testnet: the
+same page at https://testnet.1024ex.com/deposit has a one-click test-USDC
+button — use that for test money, never a deposit address.
 
 ## Making calls
 
@@ -146,7 +272,7 @@ are always present, empty when nothing matched. Response:
 {"query":"bitcoin",
  "perps":[{"symbol":"BTC-USDC","maxLeverage":100,"status":"active","…":"…"}],
  "collections":[{"collectionId":887,"name":"Bitcoin above ___ on August 4?","marketCount":8,"…":"…"}],
- "markets":[{"marketId":35737,"question":"When will Bitcoin hit $150k?",
+ "markets":[{"marketId":35737,"question":"When will Bitcoin hit 150k?",
              "marketType":"binary","yesPriceE6":36000,"endTime":"…","…":"…"}]}
 ```
 
@@ -157,6 +283,7 @@ Account and trading (HMAC — always via `scripts/api.py`):
 
 ```text
 GET    /api/v1/accounts/me/overview            equity + balances across products
+GET    /api/v1/accounts/me/api-key/introspect  whoami — label, permissions, last use (what `status` reads)
 GET    /api/v1/perp/positions                  open positions
 GET    /api/v1/perp/orders                     open orders; filled/cancelled: /orders/history
 POST   /api/v1/perp/orders                     place (body fields: see example above)
@@ -181,114 +308,7 @@ not a dollar size. Sending perp-style `{"side":"buy","size":…}` fails with
 
 **Symbol formats differ**: perp is `BTC-USDC` (dash), prediction takes a
 numeric `marketId`. Anything beyond this table (funding, TP/SL, advanced
-orders, treasury, streams) → Canonical docs below.
-
-## Alpha — mined opportunities, executable in two calls
-
-**Alpha is 1024's flagship: a trading opportunity surfaced by AI and data
-mining, published as an object anyone can execute directly.** It is not
-copy trading — never describe it that way. Nothing mirrors the author's
-account and nothing keeps following them afterwards: the user gets a
-concrete plan, sizes it themselves, and places it once. Route here the
-moment they say *alpha*, *action list* or *跟单* (they mean this — fix the
-framing), or ask what is worth trading right now.
-
-| The user wants to… | What it is | Call |
-| --- | --- | --- |
-| see what is out there | published **action lists** (legs carrying preset order params), position-backed **tickets**, and a machine-generated **signal** feed | `GET /api/v1/alpha/lists?withPerf=true` (filters `q` `symbol` `sort=hot`); `GET /api/v1/alpha/search?q=` adds tickets + signals — public, no key |
-| act on one | resolve the author's params against the live market, then place leg by leg | `POST /alpha/lists/{id}/plan` → `POST /alpha/lists/{id}/execute` |
-| publish their own | legs + params, written atomically; or a ticket backing a position they hold | `POST /alpha/lists` · `POST /alpha/tickets` |
-
-**Always ask for `withPerf=true` when listing alpha, and report the number
-with what it is.** `perf.returnPct` is the same figure the web card shows —
-every leg measured from the moment it entered the list, equal-weight,
-unlevered, stance-signed (`window: sincePublished`, `basis:
-equalWeightUnlevered`). It is **paper**: no entry slippage, no leverage, no
-fees or funding, and no tp/sl exit, so a follower's result differs by all
-four. `returnPct: null` means it could not be computed (`validLegs` /
-`excluded` say why) — never render that as 0.00%. `perf.unmoved: true`
-means no leg has re-priced since the anchor (what US equity legs look like
-out of hours) — report that as "has not moved since publication", never as
-"flat". `/alpha/search` has no `withPerf`; use `/alpha/lists` when the
-number matters.
-
-`plan` turns a published idea into the exact orders for *this* account;
-`execute` places them. **Never execute without planning first** — `plan`
-is the only thing that interprets the author's params, and its `skipped` /
-`warnings` are the only honest account of what will actually be placed.
-`execute` partially succeeds by design: read `legs[].status` leg by leg.
-`dryRun: true` rehearses everything and places nothing.
-
-**Size is always the user's, never the author's.** `plan` takes
-`budgetUsd` (or `perLegMarginUsd`) plus `leverage` — published alpha says
-what and how, never how much. `leverage` is required only for perp legs;
-prediction and **options** legs are fully paid, so their size is just the
-money committed.
-
-**Legs come in three tradable kinds:** `perp` (stance in the leg id),
-`pm_market` (an outcome), and `options` (one contract, e.g.
-`AAOI-20260904-102-C`, buy-only — a bearish option view is a bought put).
-Option contracts are found with the public
-`GET /api/v1/options/chain?underlying=AAOI-USDC`; never assemble a symbol
-by hand. If a whole options chain plans empty with `no_reference_price`,
-the US session is closed — the mark is stale, not missing.
-
-Publishing runs the other way and is just as short: one signed
-`POST /alpha/lists` writes every leg and its params in a single atomic
-call. Where the idea came from does not matter — the user's own model,
-this agent, a strategy they run on 1024's AgentX. A ticket is the other
-kind: it must be backed by a position they actually hold, so it proves
-the trade was real.
-
-**A list is legs plus the argument behind them, and the argument is a
-field.** Send both texts on every publish:
-
-- `description` — one plain-text sentence, ≤512 chars. The card subtitle
-  and the search row; write it standalone.
-- `descriptionMd` — the reasoning in full, markdown, ≤4000 chars. This is
-  what the card and detail page render. Cover the mechanism you are
-  betting on (not just the direction), the specific numbers you read
-  **and when you read them**, why these legs in this shape, the entry /
-  stop / target reasoning behind `defaultCfg` in words, what would make
-  the thesis wrong, and what you are not claiming. `?q=` searches it, so
-  a ticker that appears only in the body is still findable. Every figure
-  must come from a call you actually made — an invented argument is worse
-  than a thin one, because it is the one people size up on.
-
-**Every leg that carries params needs an exit.** Give each perp leg
-`exit.tpPct`/`tpPrice` **and** `exit.slPct`/`slPrice`, each market-mode
-prediction leg `guardTpC` **and** `guardSlC` — half an exit, or a bare
-leg sitting in an armed basket, is what a follower's client turns into a
-trade with nothing closing it. Option legs are exempt and cannot comply:
-the venue has no options exit channel, so an `exit` on one is dropped, not
-honoured — say in `descriptionMd` that the premium is the loss cap and the
-contract expires on its own, rather than implying a stop exists. The web app's publish path enforces this
-with a 400; `POST /alpha/lists` does not check at all — which makes it a
-rule you hold, not a rule that lapses because the server stayed quiet. A
-leg you cannot arm does not go into an armed list: drop the leg, or
-publish the whole basket watch-only.
-
-A third field, `reportUrl`, links the full generation report — the
-**derivation**, not a longer thesis: the universe you scanned, the
-filters and what each removed, the candidates you rejected, how the
-parameters were chosen. Send it whenever you actually ran a screen or a
-backtest, as one self-contained HTML page (no external scripts, styles,
-fonts or images — it renders in a sandbox):
-
-```bash
-POST /api/v1/alpha/lists/{id}/report   {"html": "<!doctype html>…"}
-→ { "reportUrl": "…", "bytes": 48213 }
-```
-
-It is a second call **after** the list exists (the object is keyed by the
-list id), so `reportUrl` on create is a 400. You never send a URL —
-`reportUrl` is read-only and the server sets it; `""` is the one accepted
-value and it removes the report. Re-posting replaces the page and keeps
-the same link. Readers open it at
-`www.1024ex.com/alpha-report/{listId}`.
-
-Details: `15-alpha/alpha-search`, `15-alpha/alpha-action-list`,
-`15-alpha/alpha-publish`.
+orders, treasury) → Canonical docs below.
 
 ## Confirm every order against the account
 
@@ -342,7 +362,7 @@ order really out of `/orders`.
   `position_side`). A camelCase key there is silently ignored and the call
   still returns 200 — TPSL comes back `takeProfit: null`, batch cancel
   `cancelledCount: 0`. Read the position / count back after each call.
-- **Off-session markets cap new risk at 2x leverage and $1,000
+- **Off-session markets cap new risk at 2x leverage and 1,000 USDC
   notional** — armed when a market's price is on the fallback feed or its
   content has gone stale (equity perps outside their session). Over
   either: 400 `REQ_INVALID_PARAMS` on `leverage` or `qty`. It applies to
@@ -359,7 +379,7 @@ order really out of `/orders`.
   BEFORE the balance check — a far-from-market resting limit comes back
   400 `TRADE_PRICE_DEVIATION`, not "insufficient funds". Quote inside the
   band or use a market order.
-- **Prediction BUY orders need ~$1 notional** (`amount x priceE6`, with a
+- **Prediction BUY orders need ~1 USDC notional** (`amount x priceE6`, with a
   one-share tolerance). Below it: 400 `REQ_INVALID_PARAMS` on `amount`.
   Sells have no minimum — a dust position can always be closed.
 - Always pass `clientOrderId` (1-64 chars `[A-Za-z0-9_-]`) so retries are
@@ -371,7 +391,7 @@ order really out of `/orders`.
 
 This file is a wrapper; the skill manual is the product. Before first use
 of an area beyond the quick reference (funding, TP/SL, advanced orders,
-treasury, streams…), fetch the relevant note as raw markdown from
+treasury…), fetch the relevant note as raw markdown from
 https://www.1024ex.com/skills/raw/<path>.md — pick `<path>` straight from
 the directory below, no index fetch needed. Complete corpus:
 https://www.1024ex.com/llms-full.txt · index: https://www.1024ex.com/llms.txt
@@ -379,8 +399,6 @@ https://www.1024ex.com/llms-full.txt · index: https://www.1024ex.com/llms.txt
 
 <!-- note-directory:begin — generated by scripts/gen-skill-index.mjs; do not edit by hand -->
 - 00-quickstart/claim-testnet-usdc — POST /testnet/faucet/claim — fund your own testnet account with one signed call, no browser, no source-chain deposit.
-- 00-quickstart/hello-exchange — First contact — read server time, exchange info, and system status with zero credentials.
-- 00-quickstart/onboard-headless — POST /oauth/onboard — one wallet signature creates user, account, and API key in a single call.
 - 00-quickstart/sign-requests — HMAC-SHA256 request signing — the three headers every authenticated call must carry.
 - 10-discover/funding-and-prices — Funding rate current/list/history, mark & index price, open interest, insurance fund. Public.
 - 10-discover/options-chain — Options discovery — catalog, contract detail, expiries, the priced chain with Greeks, book and tape. Public, no auth. Every number is an e6 integer, and every "not found" answers empty instead of 404.
@@ -389,9 +407,6 @@ https://www.1024ex.com/llms-full.txt · index: https://www.1024ex.com/llms.txt
 - 10-discover/prediction-discovery — Find markets from a keyword — unified search (perps + collections + markets) plus the filtered PM list, shelves, categories and tags.
 - 10-discover/prediction-market-data — Per-market PM data — detail, outcomes, orderbook/depth with the LP virtual ladder, prices, klines, trades, media.
 - 10-discover/watchlists — Cross-product watchlists — perp/PM items with stance; share, clone, community. Same lists the web app shows.
-- 15-alpha/alpha-action-list — Execute a published alpha end to end — the curator param vocabulary, the server-side plan that resolves it into concrete orders for your account, and per-leg execution. Your size, not theirs; one deliberate placement, not copy trading.
-- 15-alpha/alpha-publish — Publish alpha you mined yourself — action lists anyone can execute and position-backed tickets anyone can verify, plus the three texts that carry the argument (one-line summary, markdown thesis, generation report) and editing, unpublishing and deleting. One signed call, whatever found the opportunity.
-- 15-alpha/alpha-search — Find a mined opportunity worth taking — one keyword across published action lists, position-backed tickets and the server signal feed. Start here when the user asks what is worth trading right now. Public, no key.
 - 20-trade/advanced-orders — 11 perp algo order types — conditional, twap, vwap, scale, oco, bracket, iceberg, pegged, pov, trailing-stop, sniper.
 - 20-trade/close-position — Close a perp position full or partial. Market by default; type=limit is an IOC at your price — no_fill leaves the position untouched and rests nothing.
 - 20-trade/leverage-and-margin — Read/set per-market leverage and add/remove position margin. Request bodies are snake_case here.
@@ -408,20 +423,14 @@ https://www.1024ex.com/llms-full.txt · index: https://www.1024ex.com/llms.txt
 - 30-portfolio/options-positions — Open options positions, manual American exercise, and the exercise/settlement ledger. Exercise is irreversible, idempotency-keyed, and gated on price freshness.
 - 30-portfolio/pnl — Perp PnL summary — realized, live unrealized, funding and fees, netted overall and per market.
 - 30-portfolio/positions — Open perp positions — all or per market — entry/mark/liq prices, uPnL, margin, ADL rank.
-- 40-treasury/deposit — Fund the account — discover bridge routes, prepare a stake tx, broadcast from YOUR wallet, poll until credited.
+- 40-treasury/deposit — Fund the account — hand over the /deposit link (USDC in the login wallet, other crypto via a one-time address, or card / bank), then confirm the credit landed.
+- 40-treasury/deposit-address — A deposit address made for this account right in the chat, for money on an exchange or another chain (USDT on Tron, BTC, ETH, USDC elsewhere). Relay converts it to USDC in the user's own wallet; one tap on 1024 moves it in.
 - 40-treasury/internal-transfer — Move USDC between your main account and its subs — direction is fixed by which key signs.
 - 40-treasury/sub-accounts — One atomic call creates a sub-account plus its own trading API key, optionally pre-funded from the parent.
-- 40-treasury/withdraw — The exit gauntlet — grant canWithdraw, allowlist an address (24 h), clear limits and AML hold, create, poll.
-- 50-risk-and-keys/api-key-lifecycle — Introspect, list, rotate, and revoke API keys; the per-key permission model and the stepped-up withdraw grant.
+- 50-risk-and-keys/api-key-lifecycle — Introspect, list, rotate, and revoke API keys, and the per-key permission model.
 - 50-risk-and-keys/error-model — One envelope for every response; code registry highlights, HTTP mapping surprises, and retry rules per class.
 - 50-risk-and-keys/idempotency — clientOrderId semantics per domain, PM dedup keys, and how the HMAC replay window shapes safe retries.
-- 50-risk-and-keys/rate-limits — Per-key (else per-IP) sliding-window limits, VIP-0 defaults, burst math, daily caps, and the 429/403 split.
-- 60-streams/incremental-orderbook — mode "incremental" book streams — snapshot then deltas, seq/prevSeq continuity, CRC32 checksum, recovery rules.
-- 60-streams/websocket-auth — In-band auth frame — sign `{timestamp}GET/api/v1/ws` with your REST secret to unlock private channels.
-- 60-streams/websocket-channels — One WS endpoint, 18 channels across perp/pm/user; frames, cadences, heartbeat and connection rules.
 - 70-analytics/leaderboards — Trading championships — list, detail, ranked leaderboard, top3, plus your own rank (the only signed call).
-- 70-analytics/market-analytics — Aggregator-shaped market data — CoinGecko/CMC tickers, CoinGecko-DEX pairs, per-market summaries, history, klines.
-- 70-analytics/public-analytics — Protocol-wide aggregates — TVL, volume, fees, OI, liquidations, insurance fund, funding, DAU. Aggregator-ready.
 - 90-recipes/agent-fleet — One sub-account per strategy — isolated balances, own API keys, one-call kill switch.
 - 90-recipes/funding-scanner — Sweep funding rates across every perp market, rank extremes, harvest the carry.
 - 90-recipes/liquidation-guard — Watch margin ratio in real time, de-risk automatically before the engine does it for you.

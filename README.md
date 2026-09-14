@@ -1,46 +1,55 @@
 # 1024ex — agent skill for 1024 Exchange
 
-Trade on [1024 Exchange](https://www.1024ex.com) from Claude Code or any
-agent that understands [Agent Skills](https://agentskills.io) — perpetuals
-and prediction markets over the public HTTP API: onboarding, HMAC-signed
-orders, positions, balances, treasury and withdrawals.
+Trade on [1024 Exchange](https://www.1024ex.com) from Claude Code, Cursor,
+Codex or any agent that understands [Agent Skills](https://agentskills.io) —
+perpetuals and prediction markets over the public HTTP API: connect,
+HMAC-signed orders, positions, balances and treasury.
 
 ## Install
 
-Any one of:
+This repo is the default install address:
 
 ```sh
-npx skills add 1024-foundation/1024ex
+npx -y skills add 1024-foundation/1024ex -y
+```
+
+The same package is also served from 1024ex.com itself:
+
+```sh
+npx -y skills add https://www.1024ex.com --skill 1024ex -y
 ```
 
 ```sh
 curl -fsSL https://www.1024ex.com/skills/claude/install.sh | sh
 ```
 
-Or point your agent at the well-known discovery index:
-`https://www.1024ex.com/.well-known/agent-skills/index.json`
-
 Human-friendly walkthrough: https://www.1024ex.com/skills/install
 
-## Setup
+## Connect
 
-Create an API key in the web app (Settings → API keys) and export:
+No key to paste. From the installed skill directory:
 
+```sh
+python3 scripts/api.py status     # exit 0 connected · 3 not connected · 2 key rejected
+python3 scripts/api.py connect    # prints a login link — open it and approve
 ```
-API_1024_KEY     1024_<64-hex>
-API_1024_SECRET  64-hex secret (shown exactly once at creation)
-API_1024_BASE    optional base-URL override; default mainnet
-```
 
-Mainnet and testnet are separate accounts — a `--testnet` call needs a key
-minted on https://testnet.1024ex.com.
+The API key lands in `~/.1024ex/credentials.json`; the secret never appears in
+the chat. Or just tell your agent: "connect my 1024 account". Every connected
+AI is listed, and revocable, at https://www.1024ex.com/connect.
+
+Mainnet and testnet are separate accounts — pass `--testnet` to connect and
+trade on https://testnet.1024ex.com.
 
 ## Contents
 
-- [SKILL.md](SKILL.md) — the skill: endpoint map, signing contract, market
-  conventions, guardrails
+- [SKILL.md](SKILL.md) — the skill: connect flow, endpoint map, signing
+  contract, market conventions, guardrails
 - [scripts/api.py](scripts/api.py) — stdlib-only signed HTTP client
+  (`status`, `connect`, `disconnect`, `deposit`, and signed `GET`/`POST`)
+- [scripts/qr.py](scripts/qr.py) — vendored QR encoder (MIT, stdlib only) so
+  a deposit address can be drawn in the chat
 
 Full API reference lives at https://www.1024ex.com/skills (also indexed in
-[llms.txt](https://www.1024ex.com/llms.txt)). This repo mirrors the package
-served from 1024ex.com; the site is the source of truth.
+[llms.txt](https://www.1024ex.com/llms.txt)). The package here is built from
+that vault and synced on every change.
