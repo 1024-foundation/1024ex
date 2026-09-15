@@ -49,8 +49,9 @@ trade on https://testnet.1024ex.com.
   (`status`, `connect`, `disconnect`, `deposit`, and signed `GET`/`POST`)
 - [scripts/plan.py](scripts/plan.py) — order preview: a basket of perp
   entries, each with its take-profit and stop-loss, validated and priced
-  against the live market, drawn as one local page (max profit, max loss,
-  margin, the exact requests) with the one button that sends it
+  against the live market, published as one page on 1024ex.com (max profit,
+  max loss, margin, the exact requests) that opens on any device, with the
+  one button that sends it — behind the user's own 1024 login
 - [scripts/qr.py](scripts/qr.py) — vendored QR encoder (MIT, stdlib only) so
   a deposit address can be drawn in the chat
 

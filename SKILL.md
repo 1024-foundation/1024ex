@@ -1,7 +1,7 @@
 ---
 name: 1024ex
 metadata:
-  version: 2026.09.14.5
+  version: 2026.09.14.6
   updated: 2026-09-14
 description: Trade on 1024 Exchange via its public HTTP API — perpetuals and prediction markets. Onboarding, HMAC-signed orders, positions, balances and treasury; multi-market baskets with a take-profit and stop-loss on every leg, shown on a preview page (max profit, max loss, one button that sends). Use when the user asks to trade, quote, monitor, or automate anything on 1024 / 1024ex.com, or when they want to connect or log in to their 1024 account.
 ---
@@ -13,9 +13,9 @@ risks real funds. Before placing, cancelling-all or transferring, restate
 what you are about to do (market, side, size, price, amount) and get the
 user's explicit confirmation. Never trade unprompted. For perp entries
 that confirmation is the **Place** button on the preview page
-(`scripts/plan.py`, below): the user sees every leg, the max profit, the
-max loss and the exact requests before anything leaves the machine, and
-nothing is sent until they click.
+(`scripts/plan.py`, below): a page on 1024ex.com the user can open on
+any device, showing every leg, the max profit, the max loss and the
+exact requests. Nothing is sent until they click there.
 
 ## Getting connected
 
@@ -129,7 +129,8 @@ what needs no key, so their first impression is not a login wall:
 - "What's BTC trading at?" — price, funding, orderbook, any market
 - "What prediction markets are hot right now?"
 - "Build me a basket around NVDA with stops and show me the preview" —
-  the page works before connecting; only its Place button needs a key
+  the priced summary works before connecting; publishing the page needs
+  the account connected
 - "Connect my 1024 account" — required for positions, balances, orders
 - "How do I fund my account?" — a deposit link, or an address right here
   in the chat for money on an exchange; once connected
@@ -344,8 +345,8 @@ plan from their answer and show it. Never widen it on your own, and never
 re-ask once they have answered. Prediction markets are not part of a plan;
 place them as before.
 
-**Write the plan, show the page, let the click send it.** One JSON file,
-every number a decimal string:
+**Write the plan, publish the page, let the click send it.** One JSON
+file, every number a decimal string:
 
 ```json
 {"title": "Long semis",
@@ -359,41 +360,48 @@ every number a decimal string:
 ```
 
 ```bash
-python3 scripts/plan.py preview plan.json            # validates, prices, prints the summary, opens the page, waits for the click
-python3 scripts/plan.py preview plan.json --no-serve # summary + page file only; nothing can be sent
+python3 scripts/plan.py preview plan.json          # validates, prices, prints the summary, publishes the page, waits for the click
+python3 scripts/plan.py status  pl_…               # where a published plan stands — any time, from any run
 ```
 
 `preview` checks every leg against the live market (step, tick, price
 band, leverage, session, TP/SL on the right side of entry), computes
 **max profit** (every leg at its take-profit) and **max loss** (every
 stop fills at its level — a gap through a stop can cost up to the
-margin posted, and the page says so), prints that summary, and serves
-the page on `127.0.0.1` with a Place button that sends one bracket
-order per leg, in plan order.
+margin posted, and the page says so), prints that summary, then
+publishes the page with this key (`POST /api/v1/plans`) and prints its
+link: `https://www.1024ex.com/plan/pl_…` (testnet: `testnet.1024ex.com`).
+The page is served by 1024ex.com, **not by the machine running the
+script** — it opens on the user's phone, from a sandboxed host,
+anywhere. There the user signs in with their own 1024 login (the same
+account this key is connected to) and clicks Place; the exchange then
+sends one bracket order per leg, in plan order. This key never leaves
+here and the page holds nothing that can trade without that login.
 - **Relay the printed summary** — the `MAX PROFIT / MAX LOSS / MARGIN`
   line, each leg, the warnings — **and the preview link on its own
-  line.** The script already opened it in the user's browser; a
-  browser tool of your own may open it too (it is local to this
-  machine). Do not ask for a second confirmation in the chat: the
-  click is the confirmation.
-- **The command blocks until Place, Cancel or the timeout** (`--wait`,
-  default 300 s) — longer than many hosts allow a tool call (Claude
-  Code: 2 minutes). Give it your longest timeout (Claude Code: Bash
-  `timeout: 600000`), or run it in the background and read its output.
+  line.** Say it works on any device. Do not ask for a second
+  confirmation in the chat: the click is the confirmation.
+- **The command waits for the click up to `--wait` seconds** (default
+  300) and then reports; the page itself stays open for `--ttl` seconds
+  (default 900) regardless. If the host cuts the call short, or the user
+  needs longer, nothing is lost: `plan.py status pl_…` (the id is in the
+  link) reads where it got to and prints the same report. `--wait=0`
+  publishes and returns at once.
 - **Read the exit code, then report what it printed under "Account
   now"** — the positions and resting brackets the exchange holds, leg
   by leg, which is the only thing that counts. 0 = every leg accepted
   · 6 = some leg refused (say which, from the list) · 5 = cancelled on
-  the page, nothing sent · 4 = no click in time, nothing sent — offer
-  to show it again · 2 = plan invalid, the reasons are printed: fix the
-  file and re-run · 3 = not connected, the page showed with its button
-  off.
+  the page, nothing sent · 4 = no decision yet — the output says whether
+  the page is still open (check again with `status`) or expired (offer
+  to show it again) · 2 = plan invalid, the reasons are printed: fix the
+  file and re-run · 3 = not connected — the summary printed, nothing was
+  published; connect first.
 - Warnings come from the live market and are not blockers, but the
   user should hear them: degraded-session caps, uneven risk across
   legs, a stop beyond the bankruptcy price.
-- `plan.py execute plan.json` sends without the page. Only when no
-  browser can be opened at all, and only after the user confirmed the
-  same printed summary in the chat.
+- `plan.py execute plan.json` sends from here without the page. Only
+  for a user who has no browser on any device, and only after they
+  confirmed the same printed summary in the chat.
 - The `clientOrderId`s derive from the file's content and the UTC
   date, so re-running the same file the same day retries rather than
   doubles; edit the file for a genuinely new plan.

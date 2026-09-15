@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
 """1024 order preview — validate and price a basket of perp entries, each with
-its take-profit and stop-loss, draw it as one short page (the basket's max
-profit, max loss and margin, one payoff curve, the exact requests), and
-send it only when the user clicks the button on that page. Stdlib only;
-every exchange call goes through api.py.
+its take-profit and stop-loss, publish it as one short page on 1024ex.com (the
+basket's max profit, max loss and margin, one payoff curve, the exact
+requests), and let the user send it with one click on that page — from any
+device, with their own 1024 login. Stdlib only; every exchange call goes
+through api.py.
 
-    python3 scripts/plan.py preview plan.json [--testnet] [--wait=300] [--no-serve] [--port=N]
+    python3 scripts/plan.py preview plan.json [--testnet] [--wait=300] [--ttl=900]
+    python3 scripts/plan.py status  pl_…      [--testnet] [--wait=0]
     python3 scripts/plan.py execute plan.json [--testnet]
 
-`preview` prints the summary the agent relays, writes the page, opens it in
-the user's browser and serves it on 127.0.0.1 until the user clicks Place
-(the orders go out, then the account is read back and printed) or Cancel,
-or --wait seconds pass. `--no-serve` prints the summary and the page path
-only — nothing is served, nothing can be sent. `execute` skips the page:
-for a host with no browser, after the user confirmed the same summary in
-the chat.
+`preview` prints the summary the agent relays, uploads the page
+(`POST /api/v1/plans`, signed with this agent's key), prints its link and
+waits up to --wait seconds for the user to click Place or Cancel there. The
+page stays open for --ttl seconds (default 15 min) whether or not this
+command is still waiting — `status` reads where it got to, any time. The
+link is served by 1024ex.com, not by this machine: it opens on a phone, in
+a sandboxed host, anywhere. Placing needs the user's own 1024 web login,
+for the same account this key is connected to; this key never leaves here.
+`execute` skips the page: for a user who confirmed the same summary in the
+chat and has no browser at all.
 
 plan.json — every number a decimal string in human units:
 
@@ -36,25 +41,22 @@ derive from the file's content and the UTC date, so re-running the same
 plan the same day retries rather than doubles.
 
 Exit codes:
-    preview   0 sent, every leg accepted · 6 sent, some leg refused (the
-              output says which) · 5 cancelled on the page · 4 no click
-              within --wait (nothing sent; re-run to show it again) ·
-              2 plan invalid (reasons printed, nothing served) · 3 not
-              connected (the page still shows; the button is off) · 1 error
+    preview   0 placed, every leg accepted · 6 placed, some leg refused (the
+    status    output says which) · 5 cancelled on the page · 4 no decision
+              yet — the page is still open until it expires, or it expired
+              (the output says which; `status pl_…` picks it up again) ·
+              2 plan invalid (reasons printed, nothing uploaded) · 3 not
+              connected (nothing uploaded) · 1 error
     execute   0 / 6 / 2 / 3 / 1 as above
 """
 import hashlib
-import html
 import json
 import os
-import secrets
 import sys
-import threading
 import time
 import webbrowser
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
 sys.dont_write_bytecode = True
@@ -64,7 +66,10 @@ import api  # noqa: E402 — the bundled signed client; every call goes through 
 MAX_LEGS = 12
 PRICE_BAND = 0.15          # perp limit more than this from mark → TRADE_PRICE_DEVIATION
 DEGRADED_LEV, DEGRADED_NOTIONAL = 2, 1000.0   # off-session caps on new perp risk
-PAGE_GRACE = 8             # seconds the page is kept alive after the last state change
+DEFAULT_WAIT = 300         # seconds `preview` waits for the click before handing over to `status`
+DEFAULT_TTL = 900          # seconds the page accepts a click (server clamps to 60–3600)
+POLL_S = 2                 # how often the plan is read back while waiting
+PLANS = "/api/v1/plans"
 
 
 class PlanError(Exception):
@@ -337,128 +342,125 @@ def text_summary(m):
     return "\n".join(lines)
 
 
-def commands(m):
-    return [f"python3 scripts/api.py{' --testnet' if m.base == api.TESTNET else ''} POST {l.path} '{l.body_json}'" for l in m.legs]
+# ─── hosted page ─────────────────────────────────────────────────────────────
 
 
-# ─── page ────────────────────────────────────────────────────────────────────
-
-CSS = """
-@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&display=swap');
-:root{--bg:#101010;--card:#0a0f15;--line:rgba(255,255,255,.09);--txt:#fff;--dim:rgba(255,255,255,.52);--faint:rgba(255,255,255,.4);--mint:#50d2c1;--cyan:#31e8ff;--violet:#aa8cff;--gold:#f6c76b;--up:#a9f2c4;--dn:#ff8a8a}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 "Hanken Grotesk",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;padding:30px 20px 120px}
-main{max-width:920px;margin:0 auto}.eyebrow{font-size:10px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--mint)}
-h1{font-size:30px;line-height:1.05;font-weight:600;letter-spacing:-.04em;margin:8px 0 6px}.thesis{color:var(--dim);font-size:14px;line-height:1.55;margin:0 0 20px;max-width:720px}
-.card{position:relative;overflow:hidden;background:var(--card);border:1px solid var(--line);border-radius:24px;padding:20px 22px 22px;margin-bottom:12px}
-.card::before{content:"";position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(90deg,transparent,var(--c,var(--mint)) 35%,transparent)}
-.card::after{content:"";position:absolute;top:-80px;right:-60px;width:180px;height:180px;border-radius:50%;background:var(--c,var(--mint));opacity:.07;filter:blur(48px);pointer-events:none}
-.lbl{display:block;font-size:10px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--c,var(--mint));margin-bottom:14px}
-.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}.kpi .l{font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
-.kpi .v{font-size:28px;line-height:1.1;font-weight:600;letter-spacing:-.03em;font-variant-numeric:tabular-nums;margin-top:6px}.kpi .s{font-size:12px;line-height:1.45;color:var(--faint);margin-top:5px}
-table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}th{font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);text-align:left;padding:0 12px 10px 0}
-td{padding:9px 12px 9px 0;border-top:1px solid var(--line);white-space:nowrap}.tbl{overflow-x:auto}svg{width:100%;height:auto;display:block}
-.warn{list-style:none;margin:0;padding:0}.warn li{display:flex;gap:10px;align-items:flex-start;font-size:12px;line-height:1.5;color:var(--dim);margin:6px 0}
-.warn li::before{content:"!";flex:none;width:16px;height:16px;margin-top:1px;border-radius:50%;background:rgba(246,199,107,.16);color:var(--gold);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
-details{margin:4px 0 12px}summary{cursor:pointer;color:var(--faint);font-size:12px}pre{background:#070a0e;border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin:10px 0 0;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim);overflow-x:auto;white-space:pre}
-.note{font-size:12px;line-height:1.5;color:var(--faint)}
-.bar{position:fixed;left:0;right:0;bottom:0;background:rgba(16,16,16,.86);backdrop-filter:blur(14px);border-top:1px solid var(--line);padding:14px 20px}
-.bar .in{max-width:920px;margin:0 auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-button{font:inherit;font-weight:600;font-size:14px;min-height:46px;padding:0 24px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:transform .15s,background .15s,border-color .15s}
-button.go{background:var(--mint);color:#031311;border:0;box-shadow:0 0 34px rgba(80,210,193,.16)}button.go:hover:not(:disabled){background:#67e1d1;transform:translateY(-1px)}
-button.alt{background:rgba(255,255,255,.035);color:#fff;border:1px solid rgba(255,255,255,.14)}button.alt:hover:not(:disabled){border-color:rgba(255,255,255,.25);background:rgba(255,255,255,.07)}
-button:disabled{opacity:.4;cursor:default;transform:none}.st{color:var(--dim);font-size:13px;flex:1;min-width:220px}
-.prog{list-style:none;margin:0;padding:0}.prog li{display:flex;align-items:center;gap:10px;font-size:13px;padding:9px 0;border-top:1px solid var(--line)}.prog li:first-child{border-top:0;padding-top:0}
-.ic{flex:none;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;background:rgba(255,255,255,.06);color:var(--faint)}
-.ok .ic{background:rgba(80,210,193,.16);color:var(--mint)}.bad .ic{background:rgba(255,138,138,.16);color:var(--dn)}.prog .d{margin-left:auto;font-size:12px;color:var(--faint);white-space:nowrap}
-.up{color:var(--up)}.dn{color:var(--dn)}.small{font-size:12px;color:var(--faint)}
-@media(max-width:700px){.kpi .v{font-size:24px}}@media(max-width:640px){body{padding:20px 16px 160px}h1{font-size:26px}.card{padding:18px;border-radius:20px}}@media(max-width:520px){.kpis{grid-template-columns:1fr;gap:14px}}
-"""
-
-JS = """
-const T=document.body.dataset.token;const $=s=>document.querySelector(s);
-const go=$('#go'),cancel=$('#cancel'),st=$('#st'),prog=$('#prog'),rb=$('#readback');
-async function post(p){try{const r=await fetch('/'+T+'/'+p,{method:'POST',headers:{'X-1024-Plan':T,'Content-Type':'application/json'},body:'{}'});return r.ok}catch(e){return false}}
-const cls=s=>s==='accepted'?'ok':s==='pending'||s==='sending'?'pend':'bad';
-const ic=s=>s==='accepted'?'✓':s==='pending'?'·':s==='sending'?'…':'✕';
-function render(s){
-  if(s.phase==='running'||s.phase==='done'){prog.hidden=false;
-    prog.querySelector('ul').innerHTML=s.legs.map(l=>`<li class="${cls(l.status)}"><span class="ic">${ic(l.status)}</span><span>${l.label}</span><span class="d">${l.detail||l.status}</span></li>`).join('')}
-  if(s.phase==='done'){st.textContent=s.summary||'Done.';if(s.readback){rb.hidden=false;rb.querySelector('pre').textContent=s.readback}go.textContent='Sent';go.disabled=true;cancel.hidden=true}
-  else if(s.phase==='running'){st.textContent='Sending…'}
-  else if(s.phase==='cancelled'){st.textContent='Cancelled — nothing was sent. You can close this tab.';go.disabled=true;cancel.disabled=true}
-  else if(s.phase==='expired'){st.textContent='This preview expired before a decision — nothing was sent. Ask your agent to show it again.';go.disabled=true;cancel.disabled=true}
-}
-async function poll(){let s;try{s=await(await fetch('/'+T+'/state')).json()}catch(e){st.textContent='The preview server is gone — if you clicked Place, your agent has the result.';go.disabled=true;cancel.disabled=true;return}
-  render(s);if(!['done','cancelled','expired'].includes(s.phase))setTimeout(poll,1000)}
-if(go){go.onclick=async()=>{go.disabled=true;cancel.disabled=true;st.textContent='Sending…';if(!await post('execute')){st.textContent='Could not reach the preview server.';return}}}
-if(cancel){cancel.onclick=async()=>{cancel.disabled=true;go.disabled=true;await post('cancel')}}
-poll();
-"""
-
-
-def svg_chart(m):
-    w, h, ml, mr, mt, mb = 640, 170, 60, 14, 18, 26
-    pts = m.curve
-    x0, x1 = pts[0][0], pts[-1][0]
-    ys = [v for _, v in pts] + [0.0]
-    y0, y1 = min(ys), max(ys)
-    pad = (y1 - y0) * 0.08 or 1.0
-    y0, y1 = y0 - pad, y1 + pad
-    sx = lambda x: ml + (x - x0) / (x1 - x0 or 1) * (w - ml - mr)
-    sy = lambda v: mt + (y1 - v) / (y1 - y0 or 1) * (h - mt - mb)
-    e = html.escape
-    inner = [x for x, _ in pts[1:-1]]
-    parts = [f'<svg viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="basket payoff">']
-    zero = sy(0)
-    parts.append(f'<line x1="{ml}" y1="{zero:.1f}" x2="{w - mr}" y2="{zero:.1f}" stroke="rgba(255,255,255,.12)" stroke-width="1"/>')
-    parts.append(f'<text x="{ml - 6}" y="{sy(m.best) + 4:.1f}" font-size="10" fill="#a9f2c4" text-anchor="end">{e(fm(m.best, True))}</text>')
-    parts.append(f'<text x="{ml - 6}" y="{sy(m.worst) + 4:.1f}" font-size="10" fill="#ff8a8a" text-anchor="end">{e(fm(m.worst, True))}</text>')
-    parts.append(f'<text x="{ml - 6}" y="{zero + 4:.1f}" font-size="10" fill="rgba(255,255,255,.4)" text-anchor="end">0</text>')
-    for x, label, color in ((min(inner), "all stops", "#ff8a8a"), (0.0, "now", "#31e8ff"), (max(inner), "all targets", "#a9f2c4")):
-        parts.append(f'<line x1="{sx(x):.1f}" y1="{mt}" x2="{sx(x):.1f}" y2="{h - mb}" stroke="{color}" stroke-width="1" stroke-dasharray="3 3" opacity=".7"/>')
-        parts.append(f'<text x="{sx(x):.1f}" y="{mt - 6}" font-size="10" fill="{color}" text-anchor="middle">{e(label)} {x:+.1%}</text>')
-    parts.append(f'<polyline points="{" ".join(f"{sx(x):.1f},{sy(v):.1f}" for x, v in pts)}" fill="none" stroke="#50d2c1" stroke-width="2.2" stroke-linejoin="round"/>')
-    parts.append(f'<text x="{(ml + w - mr) / 2:.0f}" y="{h - 8}" font-size="10" fill="rgba(255,255,255,.4)" text-anchor="middle">basket PnL when every market moves together — each leg exits at its own stop or target</text>')
-    parts.append("</svg>")
-    return "".join(parts)
-
-
-def render_page(m, token):
-    e = html.escape
-    a = m.account
-    n = len(m.legs)
-    pct = f" · {m.capital / a.available:.0%} of {fm(a.available)} available" if a.available else ""
-    acct = e(a.id) if a.id else e(a.problem or "")
-    rows = []
+def document(m):
+    """What `POST /api/v1/plans` stores and the page shows. The first nine leg
+    fields are the bracket request itself; the rest are display numbers the
+    page repeats as they are."""
+    legs = []
     for l in m.legs:
-        entry = "market" if l.entry == "market" else f"limit {fp(l.price)}"
-        rows.append(f"<tr><td>{e(l.side)}</td><td>{e(fp(l.size))}</td><td>{e(l.market)}</td><td>{l.leverage}x</td><td>{e(entry)} <span class='small'>({e(fp(l.ref))})</span></td>"
-                    f"<td class='up'>{e(fp(l.tp))} <span class='small'>{e(fm(l.gain, True))}</span></td><td class='dn'>{e(fp(l.sl))} <span class='small'>{e(fm(-min(l.risk, l.margin), True))}</span></td><td>{e(fm(l.margin))}</td></tr>")
-    warn = ("<section class='card' style='--c:#f6c76b'><span class='lbl'>Heads up</span><ul class='warn'>" + "".join(f"<li>{e(w)}</li>" for w in m.warnings) + "</ul></section>") if m.warnings else ""
-    can = a.key and a.secret and not a.problem
-    go = f'<button id="go" class="go"{"" if can else " disabled"}>Place {n} order{"s" if n != 1 else ""} on {e(m.net)} <span>→</span></button>'
-    hint = "Clicking sends the requests below, in that order, with the key connected to this agent." if can else f"Not connected ({e(a.problem or '')}) — connect in the chat first, then ask for the preview again."
-    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{e(m.title)} · 1024 order preview</title><style>{CSS}</style></head>
-<body data-token="{e(token)}"><main>
-<div class="eyebrow">Order preview · {e(m.net)}</div>
-<h1>{e(m.title)}</h1>
-<p class="thesis">{e(m.thesis) if m.thesis else ''}{'<br>' if m.thesis else ''}<span class="small">{acct}</span></p>
-<section class="card" style="--c:#50d2c1"><span class="lbl">01 / Basket</span><div class="kpis">
- <div class="kpi"><div class="l">Max profit</div><div class="v up">{e(fm(m.best, True))}</div><div class="s">every leg at its take-profit</div></div>
- <div class="kpi"><div class="l">Max loss</div><div class="v dn">{e(fm(m.worst, True))}</div><div class="s">every stop fills at its level</div></div>
- <div class="kpi"><div class="l">Margin posted</div><div class="v">{e(fm(m.capital))}</div><div class="s">the most a gap through every stop can cost{e(pct)}</div></div>
-</div></section>
-<section class="card" style="--c:#31e8ff"><span class="lbl">02 / Legs — {n} bracket order{'s' if n != 1 else ''}, entry + take-profit + stop-loss each</span>
-<div class="tbl"><table><thead><tr><th>Side</th><th>Size</th><th>Market</th><th>Lev</th><th>Entry</th><th>Take-profit</th><th>Stop-loss</th><th>Margin</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div></section>
-<section class="card" style="--c:#aa8cff"><span class="lbl">03 / Payoff</span>{svg_chart(m)}</section>
-{warn}
-<details><summary>What the button sends</summary><pre>{e(chr(10).join(commands(m)))}</pre></details>
-<p class="note">USDC, before fees and funding. Stops are market-triggered: a gap through a stop fills where the market is, not at the stop, up to the margin posted. Accepted ≠ filled: a limit entry rests until it trades; its exits arm on the fill.</p>
-<section id="prog" class="card" style="--c:#50d2c1" hidden><span class="lbl">Sending</span><ul class="prog"></ul></section>
-<section id="readback" class="card" style="--c:#31e8ff" hidden><span class="lbl">Account now</span><pre style="margin:0">{''}</pre></section>
-</main>
-<div class="bar"><div class="in">{go}<button id="cancel" class="alt">Cancel</button><span id="st" class="st">{hint}</span></div></div>
-<script>{JS}</script></body></html>"""
+        d = dict(l.body)
+        d.update(referencePrice=str(l.ref), margin=round(l.margin, 2), maxProfit=round(l.gain, 2),
+                 maxLoss=round(-min(l.risk, l.margin), 2))
+        legs.append(d)
+    doc = {"title": m.title, "legs": legs, "maxProfit": round(m.best, 2), "maxLoss": round(m.worst, 2),
+           "margin": round(m.capital, 2), "curve": [[round(x, 5), round(v, 2)] for x, v in m.curve],
+           "warnings": m.warnings}
+    if m.thesis:
+        doc["thesis"] = m.thesis
+    if m.account.available is not None:
+        doc["availableBalance"] = round(m.account.available, 2)
+    return doc
+
+
+def publish(m, ttl):
+    """Upload the plan; returns (plan_id, expires_at_ms). Raises PlanError."""
+    body = dict(document(m), ttlSeconds=ttl)
+    st, txt = api.request(m.base, "POST", PLANS, json.dumps(body, separators=(",", ":")),
+                          key=m.account.key, secret=m.account.secret)
+    if st == 0:
+        raise PlanError(f"could not reach {m.net}: {txt}")
+    if st != 200:
+        try:
+            err = json.loads(txt).get("error") or {}
+        except ValueError:
+            err = {}
+        raise PlanError(f"{PLANS} refused (HTTP {st}) {err.get('code', '')}: {err.get('message') or txt[:200]}")
+    d = api.unwrap(txt) or {}
+    if not d.get("planId"):
+        raise PlanError(f"{PLANS} answered without a planId: {txt[:200]}")
+    return d["planId"], int(d.get("expiresAt") or 0)
+
+
+def plan_url(base, plan_id):
+    # Built here, not read from the server: testnet's Public API advertises
+    # the mainnet web origin (same gap api.py patches on the connect link).
+    return f"{api.web_origin(base)}/plan/{plan_id}"
+
+
+def fetch_plan(base, plan_id):
+    st, view = get(base, f"{PLANS}/{plan_id}")
+    if st == 404:
+        raise PlanError(f"no plan {plan_id} on {api.net_name(base)} — wrong network, or a typo in the id")
+    if st != 200 or not isinstance(view, dict):
+        raise PlanError(f"{PLANS}/{plan_id}: HTTP {st}")
+    return view
+
+
+def wait_for_decision(base, plan_id, wait):
+    """Read the plan until it is decided or `wait` seconds pass; returns the last view."""
+    deadline = time.monotonic() + wait
+    while True:
+        view = fetch_plan(base, plan_id)
+        if view.get("status") not in ("pending", "placing") or time.monotonic() >= deadline:
+            return view
+        time.sleep(max(0.0, min(POLL_S, deadline - time.monotonic())))
+
+
+def report(base, plan_id, view):
+    """Say where the plan stands; after Place, list each leg and read the account back.
+    Returns the exit code."""
+    net = api.net_name(base)
+    status = view.get("status")
+    legs = view.get("legs") or []
+    if status == "placed":
+        results = view.get("results") or []
+        ok_all = True
+        out("")
+        out(f"Placed on {net} — {len(legs)} legs:")
+        for r in results:
+            leg = legs[r["n"] - 1] if 0 < r.get("n", 0) <= len(legs) else {}
+            label = f"{leg.get('side', '?')} {fp(leg.get('size', 0))} {leg.get('market', '?')} {leg.get('leverage', '?')}x · TP {fp(leg.get('takeProfitPrice', 0))} / SL {fp(leg.get('stopLossPrice', 0))}"
+            if r.get("status") == "accepted":
+                replay = " (replayed an earlier order with the same clientOrderId — no second order)" if r.get("idempotentReplay") else ""
+                out(f"  ✓ {label} — accepted: orderId {r.get('orderId', '?')} · status {r.get('orderStatus', '?')}{replay}")
+            else:
+                ok_all = False
+                out(f"  ✕ {label} — refused: {r.get('errorCode', '?')}: {r.get('message', '')}")
+        key, secret, _ = api.resolve_credentials(base)
+        out("")
+        if key and secret:
+            time.sleep(1.0)  # let fills settle before reading the account
+            try:
+                rb = readback(SimpleNamespace(base=base, account=SimpleNamespace(key=key, secret=secret),
+                                              legs=[SimpleNamespace(market=l.get("market", "")) for l in legs]))
+            except PlanError as e:
+                rb = f"(could not read the account back: {e})"
+            out(f"Account now ({net}):")
+            out("  " + rb.replace("\n", "\n  ") if rb else "  (nothing to show)")
+        else:
+            out(f"Not connected on {net}, so the account was not read back — /portfolio on the web shows it.")
+        n_ok = sum(1 for r in results if r.get("status") == "accepted")
+        out("")
+        out(f"{n_ok} of {len(legs)} legs accepted." + ("" if ok_all else " Some legs were refused — see the list.")
+            + " Accepted means on the exchange, not necessarily filled — the account lines above are what counts.")
+        return 0 if ok_all else 6
+    out("")
+    if status == "cancelled":
+        out("Cancelled on the page — nothing was sent.")
+        return 5
+    if status == "expired":
+        out(f"The page expired at {api.fmt_ts(view.get('expiresAt'))} before a decision — nothing was sent. Re-run the preview to show it again.")
+        return 4
+    if status == "placing":
+        out("The user clicked Place and the exchange is still working through the legs — run "
+            f"`python3 scripts/plan.py status {plan_id}{' --testnet' if base == api.TESTNET else ''}` in a moment for the outcome.")
+        return 4
+    out(f"No decision yet — nothing was sent. The page stays open until {api.fmt_ts(view.get('expiresAt'))}; "
+        f"check again with `python3 scripts/plan.py status {plan_id}{' --testnet' if base == api.TESTNET else ''}`.")
+    return 4
 
 
 # ─── execution ───────────────────────────────────────────────────────────────
@@ -518,20 +520,12 @@ def readback(m):
     return "\n".join(lines)
 
 
-def run_and_report(m, state=None):
-    """Execute, read back, print. Returns the exit code."""
-    lock = threading.Lock()
-    glyph = {"accepted": "✓", "sending": "…"}
-
+def run_and_report(m):
+    """`execute`: send from here, read back, print. Returns the exit code."""
     def progress(l):
         status, detail = l.result
-        if state is not None:
-            with lock:
-                for row in state["legs"]:
-                    if row["n"] == l.n:
-                        row["status"], row["detail"] = status, detail
         if status != "sending":
-            out(f"  {glyph.get(status, '✕')} {leg_label(l)} — {status}{': ' + detail if detail else ''}")
+            out(f"  {'✓' if status == 'accepted' else '✕'} {leg_label(l)} — {status}{': ' + detail if detail else ''}")
 
     out("")
     out(f"Sending {len(m.legs)} legs on {m.net}:")
@@ -545,126 +539,10 @@ def run_and_report(m, state=None):
     out(f"Account now ({m.net}):")
     out("  " + rb.replace("\n", "\n  ") if rb else "  (nothing to show)")
     n_ok = sum(1 for l in m.legs if l.result and l.result[0] == "accepted")
-    summary = f"{n_ok} of {len(m.legs)} legs accepted." + ("" if ok_all else " Some legs were refused — see the list.")
-    if state is not None:
-        with lock:
-            state["readback"] = rb
-            state["summary"] = summary
-            state["phase"] = "done"
     out("")
-    out(summary + " Accepted means on the exchange, not necessarily filled — the account lines above are what counts.")
+    out(f"{n_ok} of {len(m.legs)} legs accepted." + ("" if ok_all else " Some legs were refused — see the list.")
+        + " Accepted means on the exchange, not necessarily filled — the account lines above are what counts.")
     return 0 if ok_all else 6
-
-
-# ─── server ──────────────────────────────────────────────────────────────────
-
-
-def serve(m, page, token, wait, open_browser, port):
-    state = {"phase": "waiting", "legs": [{"n": l.n, "label": leg_label(l), "status": "pending", "detail": ""} for l in m.legs],
-             "readback": None, "summary": None}
-    lock = threading.Lock()
-    decided = threading.Event()
-    exit_code = [4]
-    can_send = bool(m.account.key and m.account.secret and not m.account.problem)
-
-    class H(BaseHTTPRequestHandler):
-        def log_message(self, *a):
-            pass
-
-        def _send(self, code, body, ctype="application/json"):
-            data = body.encode() if isinstance(body, str) else body
-            self.send_response(code)
-            self.send_header("Content-Type", ctype + "; charset=utf-8")
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Referrer-Policy", "no-referrer")
-            self.end_headers()
-            self.wfile.write(data)
-
-        def _route(self):
-            parts = self.path.split("?", 1)[0].strip("/").split("/")
-            if not parts or parts[0] != token:
-                return None
-            return "/".join(parts[1:])
-
-        def _same_origin(self):
-            origin = self.headers.get("Origin")
-            host = self.headers.get("Host", "")
-            if origin and origin != f"http://{host}":
-                return False
-            return self.headers.get("X-1024-Plan") == token
-
-        def do_GET(self):
-            r = self._route()
-            if r is None:
-                return self._send(404, "not found", "text/plain")
-            if r == "":
-                return self._send(200, page, "text/html")
-            if r == "state":
-                with lock:
-                    return self._send(200, json.dumps(state))
-            self._send(404, "not found", "text/plain")
-
-        def do_POST(self):
-            r = self._route()
-            if r is None or not self._same_origin():
-                return self._send(403, "forbidden", "text/plain")
-            with lock:
-                phase = state["phase"]
-            if r == "execute":
-                if not can_send:
-                    return self._send(409, "not connected", "text/plain")
-                if phase != "waiting":
-                    return self._send(409, phase, "text/plain")
-                with lock:
-                    state["phase"] = "running"
-                exit_code[0] = None
-                decided.set()
-                return self._send(202, "{}")
-            if r == "cancel":
-                if phase == "waiting":
-                    with lock:
-                        state["phase"] = "cancelled"
-                    exit_code[0] = 5
-                    decided.set()
-                return self._send(200, "{}")
-            self._send(404, "not found", "text/plain")
-
-        def do_OPTIONS(self):
-            self._send(403, "forbidden", "text/plain")
-
-    srv = ThreadingHTTPServer(("127.0.0.1", port), H)
-    srv.daemon_threads = True
-    url = f"http://127.0.0.1:{srv.server_address[1]}/{token}/"
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    out("")
-    out(f"Preview: {url}")
-    opened = open_browser and webbrowser.open(url)
-    if opened:
-        out(f"Opened in the browser. Waiting up to {wait} s for Place or Cancel — nothing is sent until then.")
-    else:
-        out(f"Open that link (a browser tool works too — it is local to this machine). Waiting up to {wait} s for Place or Cancel — nothing is sent until then.")
-    if not can_send:
-        out("The Place button is off: " + (m.account.problem or "not connected") + ".")
-    try:
-        if not decided.wait(wait):
-            with lock:
-                state["phase"] = "expired"
-            out("")
-            out(f"No decision within {wait} s — nothing was sent. Re-run the preview to show it again.")
-            time.sleep(min(PAGE_GRACE, 3))
-            return 4
-        if exit_code[0] == 5:
-            out("")
-            out("Cancelled on the page — nothing was sent.")
-            time.sleep(min(PAGE_GRACE, 3))
-            return 5
-        code = run_and_report(m, state)
-        time.sleep(PAGE_GRACE)  # the page polls once more to show the outcome
-        return code
-    finally:
-        srv.shutdown()
 
 
 # ─── main ────────────────────────────────────────────────────────────────────
@@ -679,30 +557,41 @@ def main(argv):
             pass
     flags = [a for a in argv if a.startswith("--")]
     args = [a for a in argv if not a.startswith("--")]
-    if len(args) != 2 or args[0] not in ("preview", "execute"):
+    if len(args) != 2 or args[0] not in ("preview", "execute", "status"):
         sys.stderr.write(__doc__)
         return 2
-    verb, path = args
+    verb, target = args
     base = os.environ.get("API_1024_BASE") or api.MAINNET
     if "--testnet" in flags:
         base = api.TESTNET
-    wait, port = 300, 0
+    wait, ttl = (0 if verb == "status" else DEFAULT_WAIT), DEFAULT_TTL
     for f in flags:
         if f.startswith("--base="):
             base = f.split("=", 1)[1]
         if f.startswith("--wait="):
-            wait = max(10, int(f.split("=", 1)[1]))
-        if f.startswith("--port="):
-            port = int(f.split("=", 1)[1])
+            wait = max(0, int(f.split("=", 1)[1]))
+        if f.startswith("--ttl="):
+            ttl = int(f.split("=", 1)[1])
+
+    if verb == "status":
+        try:
+            view = wait_for_decision(base, target, wait)
+        except PlanError as e:
+            sys.stderr.write(f"{e}\n")
+            return 1
+        out(f"PLAN  {view.get('title', '?')}  ·  {api.net_name(base)}  ·  {len(view.get('legs') or [])} legs  ·  {view.get('status')}")
+        out(f"Preview: {plan_url(base, target)}")
+        return report(base, target, view)
+
     try:
-        with open(path, "rb") as fh:
+        with open(target, "rb") as fh:
             raw = fh.read()
         plan = json.loads(raw.decode("utf-8"))
     except OSError as e:
-        sys.stderr.write(f"cannot read {path}: {e}\n")
+        sys.stderr.write(f"cannot read {target}: {e}\n")
         return 2
     except ValueError as e:
-        sys.stderr.write(f"{path} is not valid JSON: {e}\n")
+        sys.stderr.write(f"{target} is not valid JSON: {e}\n")
         return 2
     try:
         m = build(base, plan, raw)
@@ -715,26 +604,40 @@ def main(argv):
             sys.stderr.write(f"  - {e}\n")
         return 2
     out(text_summary(m))
+    if m.account.problem:
+        sys.stderr.write(f"\nnot {'sending' if verb == 'execute' else 'publishing'}: {m.account.problem}\n")
+        return 3
     if verb == "execute":
-        if m.account.problem:
-            sys.stderr.write(f"\nnot sending: {m.account.problem}\n")
-            return 3
         return run_and_report(m)
-    token = secrets.token_urlsafe(24)
-    page = render_page(m, token)
-    if "--no-serve" in flags:
-        dest = os.path.join(os.path.dirname(os.path.abspath(path)), f"{os.path.splitext(os.path.basename(path))[0]}.preview.html")
-        with open(dest, "w", encoding="utf-8") as fh:
-            fh.write(page)
-        out("")
-        out(f"Page written to {dest} (not served — its button cannot send anything).")
-        return 0 if not m.account.problem else 3
-    return serve(m, page, token, wait, "--no-open" not in flags, port)
+
+    try:
+        plan_id, expires_at = publish(m, ttl)
+    except PlanError as e:
+        sys.stderr.write(f"\ncould not publish the preview: {e}\n")
+        return 1
+    url = plan_url(base, plan_id)
+    out("")
+    out(f"Preview: {url}")
+    try:
+        opened = webbrowser.open(url)
+    except Exception:  # noqa: BLE001 — a sandbox with no browser must not turn into a crash
+        opened = False
+    out(("Opened in the browser here. " if opened else "")
+        + "The link works on any device — phone included; the user signs in with their own 1024 login "
+        f"there and clicks Place or Cancel. Open until {api.fmt_ts(expires_at)}. Nothing is sent until they click.")
+    if wait:
+        out(f"Waiting up to {wait} s for the click… (`plan.py status {plan_id}` reads it any time)")
+    try:
+        view = wait_for_decision(base, plan_id, wait)
+    except PlanError as e:
+        sys.stderr.write(f"\nlost the plan while waiting: {e}\n")
+        return 1
+    return report(base, plan_id, view)
 
 
 if __name__ == "__main__":
     try:
         sys.exit(main(sys.argv[1:]))
     except KeyboardInterrupt:
-        sys.stderr.write("\nStopped — if the page said Sending, read the account before assuming anything.\n")
+        sys.stderr.write("\nStopped — the page stays open; `plan.py status <id>` says what happened.\n")
         sys.exit(130)
